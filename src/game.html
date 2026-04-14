@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ZENITH DRIVEN — Race</title>
+  <style>
+    body { margin: 0; background: #000; overflow: hidden; }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <!-- Bebas Neue for titles + Press Start 2P for START GAME flicker text -->
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Press+Start+2P&display=swap" rel="stylesheet" />
+
+  <!--
+    FIX #1 — Phaser path was "../libs/phaser.min.js" which broke because
+    game.html lives in src/ alongside the JS files. libs/ is also inside
+    src/, so the correct relative path from src/ is simply "libs/phaser.min.js".
+
+    FIX #3 — Phaser MUST be loaded before ANY game module that references
+    the Phaser global (all of them do via "extends Phaser.Scene" in main.js).
+    Script order is therefore: phaser → game modules → main.js (last).
+  -->
+  <script src="libs/phaser.min.js"></script>
+
+  <!-- Game modules — ORDER MATTERS (dependencies first, main.js last) -->
+  <script src="vehicle.js"></script>
+  <script src="traffic.js"></script>
+  <script src="settings.js"></script>
+  <script src="circuit.js"></script>
+  <script src="player.js"></script>
+  <script src="camera.js"></script>
+  <script src="levelManager.js"></script>
+  <script src="main.js"></script>
+</head>
+<body>
+  <script>
+    // Redirect to login if no session token
+    if (!sessionStorage.getItem('token')) {
+      window.location.href = 'index.html';
+    }
+  </script>
+</body>
+</html>
