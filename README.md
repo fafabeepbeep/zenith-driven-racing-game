@@ -1,4 +1,4 @@
-## 🚀 ZENITH DRIVEN — Setup & Testing Guide (UPDATED)
+# 🚀 ZENITH DRIVEN — Setup & Project Guide (FINAL)
 
 ---
 
@@ -8,15 +8,16 @@
 
 ### 1. XAMPP (MySQL)
 
-* Open XAMPP Control Panel → Start **Apache** and **MySQL**
-* You do NOT need to manually create the database — `db.js` auto-creates it
+* Open XAMPP Control Panel
+* Start **Apache** and **MySQL**
+* Database is auto-created by `db.js`
 
 **Default credentials:**
 
 ```
-host=localhost  
-user=root  
-password= (empty)
+host=localhost
+user=root
+password=
 ```
 
 If you use a password, create `.env` in project root:
@@ -28,14 +29,13 @@ DB_PASSWORD=yourpassword
 DB_NAME=racing_game
 JWT_SECRET=pick_a_long_random_string
 ```
-
+To check databases: View data
+phpMyAdmin → http://localhost/phpmyadmin
 ---
 
 ### 2. Python Virtual Environment (IMPORTANT ⚠️)
 
-Before running anything, you MUST activate `venv`.
-
-#### First time setup:
+#### Create venv (first time only)
 
 ```bash
 python3 -m venv venv
@@ -45,22 +45,16 @@ python3 -m venv venv
 
 ### ▶️ Activate venv
 
-#### Mac / Linux:
+**Mac / Linux:**
 
 ```bash
 source venv/bin/activate
 ```
 
-#### Windows:
+**Windows:**
 
 ```bash
 venv\Scripts\activate
-```
-
-You will see:
-
-```
-(venv) your-name@your-machine %
 ```
 
 ---
@@ -75,7 +69,7 @@ deactivate
 
 ## 3. Install Python Dependencies
 
-⚠️ Make sure venv is ACTIVE before installing
+⚠️ Must be inside activated venv
 
 ```bash
 pip install mediapipe opencv-python websocket-client
@@ -83,19 +77,18 @@ pip install mediapipe opencv-python websocket-client
 
 ---
 
-## 4. Node.js Backend + WebSocket Server
+## 4. Node.js Backend
 
-⚠️ Run this in a **SEPARATE TERMINAL**
+Run in a separate terminal:
 
 ```bash
 npm install
 node server.js
 ```
 
-You should see:
+Expected output:
 
 ```
-[DB] Database "racing_game" ready.
 [SERVER] API → http://localhost:3000
 [SERVER] WebSocket relay → ws://localhost:8765
 ```
@@ -104,53 +97,36 @@ You should see:
 
 ## 5. Python Gesture Control
 
-⚠️ Run this in a **SECOND TERMINAL (different from Node)**
-⚠️ Ensure venv is ACTIVE in THIS terminal too
+Run in another terminal (venv active):
 
 ```bash
 python3 gestureControl.py
 ```
 
-You should see:
+Expected:
 
 ```
 Connected to WebSocket server
 ```
 
-A webcam window will open showing:
+---
 
-* Hand landmarks (MediaPipe)
-* Current gesture text
+## ⚠️ IMPORTANT RUN ORDER
+
+You MUST run in this order:
+
+1. XAMPP (MySQL ON)
+2. Node.js server
+3. Python gesture system
+4. Open browser
 
 ---
 
-## ⚠️ IMPORTANT: RUN ORDER
+## 6. Frontend (Game Launch)
 
-You MUST run **ALL THREE in order**
+DO NOT open using `file://`
 
-### Terminal 1 (venv active):
-
-```
-node server.js
-```
-
-### Terminal 2 (venv active):
-
-```
-python3 gestureControl.py
-```
-
-### Browser:
-
-Open game via local server
-
----
-
-## 6. Frontend (Browser)
-
-⚠️ DO NOT open using `file://`
-
-Use a local server:
+Use:
 
 ```bash
 npx serve .
@@ -162,142 +138,211 @@ Then open:
 http://localhost:3000/index.html
 ```
 
-OR use VS Code Live Server.
-
 ---
 
-## ✅ Testing Checklist
-Database
+# 🚀 Project Overview
 
- XAMPP MySQL is running
- node server.js shows [DB] Database "racing_game" ready.
- Visit http://localhost:3000/api/health → should return {"ok":true}
- Register a user at http://localhost:3000/api/register
-
-Backend API
-
- POST /api/register → returns { success: true }
- POST /api/login → returns { token, username }
- GET /api/leaderboard → returns JSON array (empty [] is fine initially)
- POST /api/leaderboard/save with Bearer token → returns { success: true }
- No HTTP 500 errors in the Node console
-
-WebSocket
-
- node server.js shows WebSocket relay → ws://localhost:8765
- python gestureControl.py shows [WS] Connected to server.
- Game HUD shows WS: Connected ✓ (green)
-
-Gesture Detection
-
- Webcam window opens
- Right hand is detected (landmarks drawn)
- Gestures change as you move your hand:
-
-Index finger toward camera → START
-Open palm facing camera → BRAKE
-Fist → REVERSE
-Palm down → FORWARD
-Back of hand, fingers left → LEFT
-Palm toward camera, fingers right → RIGHT
-
-
- Game responds to gestures (HUD shows current gesture)
-
-Start Screen
-
- After login, game.html shows "ZENITH DRIVEN" logo
- "WELCOME, {username}" is shown
- "START GAME" flickers
- START gesture OR SPACE key triggers flash → enters game
-
-Countdown
-
- After start screen, countdown 3 → 2 → 1 → GO! plays
- Player is frozen during countdown
- Car starts moving after GO!
-
-Gameplay
-
- Road renders with hills/valleys (elevation system active)
- Traffic vehicles are visible (coloured rectangles if images missing)
- Collision causes red flash + speed reversal
- Off-track shows warning countdown
- Level clears after 2 laps
- Game saves to leaderboard on quit or completion
- Leaderboard on index.html shows gold/silver/bronze highlights for top 3
-
-
-🚀 Final Notes & Assumptions
-Traffic Rendering Fix
-
-Root cause: segment matching was exact (===) but vehicle segmentIndex is a float.
-Vehicles near segment boundaries could fall between two visible segments.
-Fix: ±2 segment tolerance lookup using a Map for O(1) access.
-Secondary fix: if ALL three traffic images (img_bluetruck.png, img_pinkcar.png,
-img_greencar.png) are missing from src/assets/, the system now renders
-coloured rectangles so the game is always playable.
-
-Database Fix
-
-db.js no longer connects with database: 'racing_game' from the start.
-It first bootstraps (creates DB + tables if needed), then the pool uses the DB.
-This eliminates the "Unknown database" error permanently.
-
-Gesture Mapping Fix
-
-Original: player.brake = this.currentGesture === 'STOP' — but Python sends 'BRAKE'.
-Fixed to 'BRAKE'. REVERSE was never mapped in WS mode — now mapped to 'REVERSE'.
-
-Elevation
-
-Segments use dual-frequency sine waves for natural hill/valley feel.
-Camera Y smoothly lerps toward road elevation (factor 0.10) — prevents jitter.
-
-Press Start 2P Font
-
-Added to game.html via Google Fonts for the "START GAME" flicker text.
-Phaser's fontFamily must match exactly: "'Press Start 2P', monospace".
-
-MediaPipe Hand Orientation Note
-
-After cv2.flip(frame, 1) (mirror), MediaPipe labels the player's physical
-right hand as "Left" in its classification. The code accounts for this.
-
-Improvements Made
-
-levelManager.js: added per-level trafficSpacing and difficultyInterval
-so later levels ramp up faster and cars are closer together.
-camera.js: added elevation tracking with smooth lerp.
-server.js: added request logging, health check endpoint, global error handler.
-
-## 🚀 Final Notes
-
-### 🔁 System Architecture (IMPORTANT UNDERSTANDING)
+## System Architecture
 
 ```
-Python (MediaPipe + OpenCV)
+Python (MediaPipe Gesture Detection)
         ↓
-   WebSocket (ws://localhost:8765)
+WebSocket (ws://localhost:8765)
         ↓
-Node.js server.js (relay)
+Node.js (server.js relay)
         ↓
 Phaser Game (main.js)
 ```
 
 ---
 
-### ⚠️ Common Mistakes (Avoid These)
+## 🎮 Core Gameplay Flow
 
-❌ Running Python without venv
-❌ Running both in same terminal
-❌ Not starting server first
-❌ Opening HTML via file://
-❌ Mediapipe not installed in venv
+1. Login / Register
+2. Start Screen ("ZENITH DRIVEN")
+3. Gesture START → Begin Game
+4. Countdown (3 → 2 → 1 → GO)
+5. Gameplay
+6. Level Progression (3 levels)
+7. Leaderboard update
 
 ---
 
-### 🧠 Key Rule
+## 🎯 Key Features
 
-> Node server + Python script MUST run **simultaneously in different terminals**, both inside the virtual environment.
+### 🎮 Gameplay
+
+* 3-level racing system
+* Traffic AI + collision system
+* Off-track grass penalty (70% speed reduction)
+* Game over countdown when off-track too long
+
+---
+
+### 🎨 UI System
+
+* Pause button fixed top-right
+* Username display aligned properly
+* Pause / Resume toggle icons
+* Quit system with logout message
+
+---
+
+### 🧠 Levels
+
+| Level | Name           | Base Scene      |
+| ----- | -------------- | --------------- |
+| 1     | Open Road      | current level 2 |
+| 2     | Speed Demon    | current level 4 |
+| 3     | Apex Challenge | current level 6 |
+
+---
+
+### 🏆 Leaderboard
+
+* Top 3 highlighted (Gold / Silver / Bronze)
+* Others normal style
+* Tracks completed + unfinished runs
+
+---
+
+### 🧍 Gesture Control (MediaPipe)
+
+System uses **RIGHT HAND ONLY**
+
+| Gesture      | Action  |
+| ------------ | ------- |
+| Index finger | START   |
+| Palm down    | FORWARD |
+| Fist         | REVERSE |
+| Open palm    | BRAKE   |
+| Left tilt    | LEFT    |
+| Right tilt   | RIGHT   |
+| Static palm  | BALANCE |
+
+---
+
+# 🚀 GitHub Setup & Push Instructions
+
+## 🆕 Create New Repository
+
+```bash
+echo "# zenith-driven-racing-game" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/fafabeepbeep/zenith-driven-racing-game.git
+git push -u origin main
+```
+
+---
+
+## 📤 Push Existing Project
+
+```bash
+git remote add origin https://github.com/fafabeepbeep/zenith-driven-racing-game.git
+git branch -M main
+git push -u origin main
+```
+
+---
+
+# 📌 README (PROJECT OVERVIEW)
+
+## 📌 Overview
+
+This project is developed using VS Code and managed with Git for version control.
+
+---
+
+## ⚙️ Setup Instructions
+
+### Clone Repository
+
+```bash
+git clone https://github.com/your-username/your-repo.git
+cd your-repo
+```
+
+---
+
+### Install Dependencies
+
+```bash
+npm install
+```
+
+or
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 🚀 Running the Project
+
+```bash
+node server.js
+```
+
+or
+
+```bash
+python app.py
+```
+
+---
+
+## 🌿 Git Workflow (IMPORTANT)
+
+❗ DO NOT PUSH DIRECTLY TO MAIN
+
+### Steps:
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b feature-name
+git add .
+git commit -m "describe changes"
+git push origin feature-name
+```
+
+Then create a Pull Request on GitHub.
+
+---
+
+## 📛 Branch Naming Convention
+
+* feature/feature-name
+* fix/bug-name
+* update/version-name
+
+---
+
+## 🛡️ Best Practices
+
+* Never push directly to main
+* Always pull latest changes first
+* Use meaningful commit messages
+* Delete branches after merging
+
+---
+
+## 👨‍💻 Tech Stack
+
+* Node.js
+* Python (MediaPipe)
+* Phaser.js
+* MySQL (XAMPP)
+* Git & GitHub
+* VS Code
+
+---
+
+## 📬 Contact
+
+fafabeepbeep – [fareehahj@gmail.com](mailto:fareehahj@gmail.com)
 

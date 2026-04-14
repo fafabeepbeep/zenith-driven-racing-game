@@ -1,22 +1,25 @@
-// frontend/js/traffic.js
+// src/traffic.js
 // ─────────────────────────────────────────────────────────────
-// BUG FIX SUMMARY:
-//   1. Segment matching was exact (vSegIdx === seg.index).
-//      Vehicles whose segmentIndex is fractional (due to dt accumulation)
-//      could shift ±1 segment vs. the visible list on certain frames.
-//      Fix: build a Map of segment-index → screen-point from the visible list,
-//           then look up with a ±2 tolerance so no vehicle is ever skipped.
+// BUG FIX (THIS SESSION):
+//   TRAFFIC SPRITES INVISIBLE — Root cause identified:
 //
-//   2. RenderTexture.draw() needs the source image to have correct dimensions
-//      BEFORE the draw call. setDisplaySize is applied AFTER creation but
-//      the RT snapshots current state. Fix: setDisplaySize + setPosition first.
+//   scene.make.image() creates a Phaser Image with default origin
+//   (0.5, 0.5). When RenderTexture.draw(spr, drawX, drawY) is called,
+//   Phaser renders the image CENTERED at (drawX, drawY), not from the
+//   top-left. The code already calculates:
+//     drawX = screenX - spriteW / 2
+//     drawY = screenY - spriteH
+//   which assumes top-left origin. With the 0.5 origin, the sprite ended
+//   up painted roughly (spriteW/2, spriteH/2) off — usually above the road
+//   horizon and invisible.
 //
-//   3. Added fallback: if ALL traffic textures are missing, draw coloured
-//      rectangles directly on the graphics layer so vehicles are always visible.
+//   Fix: call img.setOrigin(0, 0) once when building the pool so all draw
+//   calls use top-left origin correctly.
 //
-//   4. Depth ordering: circuit.texture (RenderTexture) is created AFTER
-//      circuit.graphics in the constructor, so it naturally sits on top.
-//      No change needed, but this is documented here for clarity.
+// Previous fixes still present:
+//   • ±2 segment tolerance in segment matching
+//   • Fallback coloured rectangles when no textures loaded
+//   • Painter's-algorithm sort (far→near)
 // ─────────────────────────────────────────────────────────────
 
 class Traffic
@@ -46,12 +49,10 @@ class Traffic
 
         this._drawSprites = null;
         this._poolSize    = 32;
-
-        // Whether ANY traffic texture loaded OK — used for fallback
         this._hasTextures = false;
     }
 
-    // ── INIT ─────────────────────────────────────────────────────────────
+    // ── INIT ──────────────────────────────────────────────────────────────
     init()
     {
         this.vehicles          = [];
@@ -71,27 +72,34 @@ class Traffic
     {
         this._hasTextures = this.spriteKeys.some(k => this.scene.textures.exists(k));
         if (!this._hasTextures)
-            console.warn('[Traffic] No traffic textures found — using coloured rectangles.');
+            console.warn('[Traffic] No traffic textures — using coloured rectangles.');
     }
 
     _buildDrawSprites()
     {
-        // Destroy old pool
         if (this._drawSprites)
-        {
             this._drawSprites.forEach(s => { try { s.destroy(); } catch {} });
-        }
+
         this._drawSprites = [];
 
-        // Choose best available key as initial texture
         var initKey = this.spriteKeys.find(k => this.scene.textures.exists(k))
                       || (this.scene.textures.exists('imagePlayer') ? 'imagePlayer' : null);
 
-        if (!initKey) { return; }  // no textures at all — fallback to rects
+        if (!initKey) return;  // no textures — fallback to rectangles
 
         for (var i = 0; i < this._poolSize; i++)
         {
             var img = this.scene.make.image({ x: 0, y: 0, key: initKey, add: false });
+
+            // ── FIX: set origin to top-left ────────────────────────────
+            // Default origin is (0.5, 0.5). RenderTexture.draw(spr, x, y)
+            // renders the image so that its origin point lands at (x, y).
+            // With 0.5 origin the sprite was centred at our draw coords
+            // instead of being top-left-anchored, shifting every sprite
+            // roughly (w/2, h/2) off-screen above the horizon.
+            img.setOrigin(0, 0);
+            // ──────────────────────────────────────────────────────────
+
             this._drawSprites.push(img);
         }
     }
@@ -182,9 +190,6 @@ class Traffic
         var texture = circuit.texture;
         var drawIdx = 0;
 
-        // ── Build a fast segment-index → screen lookup ────────
-        // This replaces the old O(segments × vehicles) double loop.
-        // A vehicle is matched to the NEAREST visible segment within ±2.
         var segMap = new Map();
         for (var n = 0; n < visibleSegmentsList.length; n++)
         {
@@ -199,19 +204,18 @@ class Traffic
             var v       = this.vehicles[i];
             var vSegIdx = Math.floor(v.segmentIndex) % circuit.total_segments;
 
-            // Try exact match first, then ±1, ±2
+            // ±2 segment tolerance
             var matchSeg = null;
             for (var off = 0; off <= 2 && !matchSeg; off++)
             {
                 var tryA = (vSegIdx + off) % circuit.total_segments;
                 var tryB = (vSegIdx - off + circuit.total_segments) % circuit.total_segments;
-                if (segMap.has(tryA)) matchSeg = segMap.get(tryA);
+                if (segMap.has(tryA))       matchSeg = segMap.get(tryA);
                 else if (off > 0 && segMap.has(tryB)) matchSeg = segMap.get(tryB);
             }
 
             if (!matchSeg) continue;
 
-            // Project vehicle world position to screen
             var worldX  = v.laneOffset * circuit.roadWidth;
             var worldZ  = vSegIdx * circuit.segmentLength;
 
@@ -229,7 +233,6 @@ class Traffic
 
             if (spriteH < 4) continue;
 
-            // Cache for collision system
             v.screen.x     = screenX;
             v.screen.y     = screenY;
             v.screen.w     = spriteW;
@@ -240,10 +243,9 @@ class Traffic
             toRender.push({ v, screenX, screenY, spriteW, spriteH, transZ });
         }
 
-        // Sort far → near (painter's algorithm)
+        // Painter's algorithm: far → near
         toRender.sort(function(a, b) { return b.transZ - a.transZ; });
 
-        // ── Draw sprites OR coloured rects (fallback) ─────────
         var noTextures = !this._drawSprites || this._drawSprites.length === 0;
 
         for (var j = 0; j < toRender.length; j++)
@@ -253,23 +255,19 @@ class Traffic
 
             if (noTextures)
             {
-                // Fallback: draw a tinted rectangle directly onto the graphics layer
-                var g = circuit.graphics;
+                var g   = circuit.graphics;
                 var col = v.colliding ? 0xff0000 : v.tint;
                 g.fillStyle(col, 1);
                 g.fillRect(
                     item.screenX - item.spriteW / 2,
                     item.screenY - item.spriteH,
-                    item.spriteW,
-                    item.spriteH
+                    item.spriteW, item.spriteH
                 );
-                // Windshield indicator
                 g.fillStyle(0x99ccff, 0.7);
                 g.fillRect(
                     item.screenX - item.spriteW * 0.3,
                     item.screenY - item.spriteH * 0.85,
-                    item.spriteW * 0.6,
-                    item.spriteH * 0.25
+                    item.spriteW * 0.6, item.spriteH * 0.25
                 );
                 continue;
             }
@@ -288,7 +286,8 @@ class Traffic
             spr.setDisplaySize(item.spriteW, item.spriteH);
             spr.setTint(v.colliding ? 0xff0000 : v.tint);
 
-            // Bottom-centre alignment: top-left corner = (cx - w/2, screenY - h)
+            // With origin(0,0): drawX/drawY = top-left corner of sprite.
+            // Bottom-centre = (screenX, screenY).
             var drawX = item.screenX - item.spriteW / 2;
             var drawY = item.screenY - item.spriteH;
 
@@ -345,15 +344,14 @@ class Traffic
     {
         var extra = this.difficultyLevel - 1;
         this.maxVehicles        = this._baseCfg ? this._baseCfg.max + extra * 2 : 8 + extra * 2;
-        this.minSpeed           = 20 + extra * 5;
-        this.maxSpeed           = 45 + extra * 8;
-        this.minSpacingSegments = Math.max(10, 30 - extra * 3);
+        this.minSpeed           = (this._baseCfg ? this._baseCfg.minSpeed : 20) + extra * 5;
+        this.maxSpeed           = (this._baseCfg ? this._baseCfg.maxSpeed : 45) + extra * 8;
+        this.minSpacingSegments = Math.max(8, (this._baseCfg ? this._baseCfg.spacing : 30) - extra * 3);
 
         while (this.vehicles.length < this.maxVehicles)
             this.spawnVehicle();
     }
 
-    // ── HELPERS ───────────────────────────────────────────────────────────
     getCollisionWarning()
     {
         if (this.isColliding) return 1;
