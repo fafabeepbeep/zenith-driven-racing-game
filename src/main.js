@@ -1,5 +1,17 @@
 // src/main.js — ZENITH DRIVEN
-// FIXES: HUD overlap, pause modal (P/Q), off-track mechanic, 3-level system
+// FIXES & ADDITIONS THIS REVISION:
+//   ROOT CAUSE FIX (leaderboard duplication):
+//     • Added _savedRecordThisRun module-level guard flag
+//     • saveRecord() blocks any second call within the same run
+//     • Flag is reset on _doRestart() and _doFullRestart()
+//     • On network error, the flag is reset to allow a retry
+//   Combined with server.js UPSERT logic and db.js UNIQUE KEY,
+//   this prevents the same user from getting multiple leaderboard rows.
+//
+//   TASK 3 — End-game animated leaderboard screen
+//   TASK 2 — saveRecord() hits the UPSERT endpoint in server.js
+//   GESTURE ACCURACY — AccuracyDisplay overlay shown after game ends;
+//                       game_reset signal sent to gestureControl.py on restart
 
 const SCREEN_W  = 1920;
 const SCREEN_H  = 1080;
@@ -20,16 +32,83 @@ var sharedWsConnected = false;
 
 const API_BASE = 'http://localhost:3000/api';
 
+// ─────────────────────────────────────────────────────────────────────────
+// LEADERBOARD GUARD — prevents duplicate saves from the same run
+// ─────────────────────────────────────────────────────────────────────────
+// saveRecord() is reachable from 4 code paths:
+//   1. STATE_COMPLETE (win)               → "Completed"
+//   2. _triggerGameOver (off-track loss)  → "Game Unfinished"
+//   3. _doPauseQuit (quit from pause)     → "Game Unfinished"
+//   4. _doQuit (quit from game over /     → "Game Unfinished"
+//      win screen)
+//
+// Without this guard, a winning run that uses the win-screen Quit button
+// would fire saveRecord("Completed") then saveRecord("Game Unfinished"),
+// creating two API requests. The flag ensures only the FIRST save per run
+// reaches the server.
+//
+// Reset by _doRestart() / _doFullRestart() so the next run can save again.
+// On network error, reset so the player can retry.
+// ─────────────────────────────────────────────────────────────────────────
+var _savedRecordThisRun = false;
+
 async function saveRecord(timeSec, levelsCompleted, status) {
+  if (_savedRecordThisRun) {
+    console.log('[LB] saveRecord() blocked — already saved this run.',
+      '| Attempted:', status, levelsCompleted, 'levels');
+    return;
+  }
+  _savedRecordThisRun = true;
+
   const token = sessionStorage.getItem('token');
-  if (!token) return;
+  if (!token) {
+    console.warn('[LB] saveRecord() — no token in sessionStorage, skipping.');
+    return;
+  }
+
+  console.log('[LB] Saving record —',
+    'status:', status,
+    'levels:', levelsCompleted,
+    'time:', timeSec
+  );
+
   try {
-    await fetch(`${API_BASE}/leaderboard/save`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ time_completed: timeSec, levels_completed: levelsCompleted, status })
+    const res = await fetch(`${API_BASE}/leaderboard/save`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({
+        time_completed:   timeSec,
+        levels_completed: levelsCompleted,
+        status
+      })
     });
-  } catch (e) { console.warn('Could not save record:', e); }
+    const data = await res.json().catch(() => ({}));
+    console.log('[LB] Server response:', data);
+
+    if (!res.ok) {
+      console.error('[LB] Save failed — HTTP', res.status, data.error);
+    }
+  } catch (e) {
+    // Network error: allow retry on the next call
+    _savedRecordThisRun = false;
+    console.warn('[LB] Could not save record (network error):', e.message);
+  }
+}
+
+// ── Format seconds → MM:SS.s ──
+function formatTime(secs) {
+  if (secs == null) return '—';
+  const m = Math.floor(secs / 60).toString().padStart(2, '0');
+  const s = (secs % 60).toFixed(1).padStart(4, '0');
+  return `${m}:${s}`;
+}
+
+function escHtml(str) {
+  return String(str).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -53,7 +132,7 @@ class StartScene extends Phaser.Scene {
       fontFamily: "'Bebas Neue','Arial Black',sans-serif",
       fontSize: '140px', fill: '#e8ff00', align: 'center', lineSpacing: -20,
       stroke: '#000', strokeThickness: 4,
-      shadow: { offsetX: 0, offsetY: 0, color: '#e8ff00', blur: 50, fill: true }
+      shadow: { offsetX:0, offsetY:0, color:'#e8ff00', blur:50, fill:true }
     }).setOrigin(0.5);
 
     this.add.text(SCREEN_CX, 370, 'HAND-GESTURE RACING', {
@@ -82,14 +161,14 @@ class StartScene extends Phaser.Scene {
 
     var legends = [
       ['✋ BRAKE','Open palm toward camera'], ['👆 START','Index finger → camera'],
-      ['🤜 REVERSE','Closed fist'],          ['👐 FORWARD','Palm facing down'],
+      ['🤜 REVERSE','Closed fist'],           ['👐 FORWARD','Palm facing down'],
       ['⬅ LEFT','Back of hand, fingers left'],['➡ RIGHT','Palm to cam, fingers right'],
     ];
     var legX = SCREEN_CX - 340, legY = 800;
     legends.forEach(function(pair, i) {
       var col = i % 2 === 0 ? legX : legX + 380;
       var row = legY + Math.floor(i / 2) * 50;
-      this.add.text(col, row, pair[0], { fontFamily:'monospace', fontSize:'20px', fill:'#e8ff00' });
+      this.add.text(col,     row, pair[0], { fontFamily:'monospace', fontSize:'20px', fill:'#e8ff00' });
       this.add.text(col+145, row, pair[1], { fontFamily:'monospace', fontSize:'20px', fill:'#777' });
     }, this);
 
@@ -145,7 +224,7 @@ class StartScene extends Phaser.Scene {
       };
       sharedSocket.onerror = () => {
         sharedWsConnected = false;
-        this._wsStatusText && this._wsStatusText.setText('WS: Error — Is server.js running?').setStyle({ fill:'#ff4444' });
+        this._wsStatusText && this._wsStatusText.setText('WS: Error').setStyle({ fill:'#ff4444' });
       };
       sharedSocket.onclose = () => {
         sharedWsConnected = false;
@@ -175,7 +254,6 @@ class MainScene extends Phaser.Scene {
   constructor() { super({ key: 'SceneMain' }); }
 
   preload() {
-    // Paths relative to src/ (the page root served by Express)
     this.load.image('imageBack',     'assets/img_nightback.png');
     this.load.image('imagePlayer',   'assets/img_player.png');
     this.load.image('imageTraffic1', 'assets/img_bluetruck.png');
@@ -186,15 +264,28 @@ class MainScene extends Phaser.Scene {
   create() {
     const username = sessionStorage.getItem('username') || 'DRIVER';
 
+    // ── New game run starts here — reset the leaderboard guard ──
+    _savedRecordThisRun = false;
+
     // ── WebSocket ──────────────────────────────────────────
     this.currentGesture = sharedGesture;
     this.wsConnected    = sharedWsConnected;
+
+    // Accuracy data received from gestureControl.py
+    this._gestureAccuracy = null;
 
     if (sharedSocket) {
       sharedSocket.onmessage = (event) => {
         try {
           var d = JSON.parse(event.data);
-          if (typeof d.gesture === 'string') this.currentGesture = sharedGesture = d.gesture;
+          if (typeof d.gesture === 'string') {
+            this.currentGesture = sharedGesture = d.gesture;
+          }
+          // Receive accuracy updates from Python
+          if (d.type === 'accuracy_update' || d.type === 'accuracy_report') {
+            this._gestureAccuracy = d.data;
+            if (this._accDisplay) this._refreshAccDisplay();
+          }
         } catch {}
       };
       sharedSocket.onopen  = () => { this.wsConnected = sharedWsConnected = true; };
@@ -214,7 +305,7 @@ class MainScene extends Phaser.Scene {
     this.camera       = new Camera(this);
     this.player       = new Player(this);
     this.traffic      = new Traffic(this);
-    this.settings     = new Settings(this);  // draws "[P] Pause" at top-right, below username
+    this.settings     = new Settings(this);
     this.levelManager = new LevelManager(this);
 
     // ── State ──────────────────────────────────────────────
@@ -233,42 +324,34 @@ class MainScene extends Phaser.Scene {
       backgroundColor: '#00000088', padding: { x:8, y:4 }
     });
 
-    // Top-left: gesture + WS status
     this.gestureText  = this.add.text(20, 20, 'Gesture: NONE', hs('28px')).setDepth(50);
     this.wsStatusText = this.add.text(20, 65,
       sharedWsConnected ? 'WS: ✓ Connected' : 'WS: Connecting…',
       hs('20px', sharedWsConnected ? '#00ff00' : '#ffff00')
     ).setDepth(50);
 
-    // Top-centre: timer
     this.timerText = this.add.text(SCREEN_CX, 20, '00:00.0', {
       fontSize: '36px', fill: '#e8ff00', fontFamily: 'monospace',
       backgroundColor: '#00000088', padding: { x:12, y:6 }
     }).setOrigin(0.5, 0).setDepth(50);
 
-    // Below timer: level + lap
     this.levelText = this.add.text(SCREEN_CX, 72, '', hs('22px', '#aaffaa'))
       .setOrigin(0.5, 0).setDepth(50);
     this.levelManager.levelText = this.levelText;
 
-    // ── FIX: username top-right, Settings.js puts [P] Pause just below ──
-    // Username at y=20; Settings.js txtPause at y=60 → no overlap.
     this.add.text(SCREEN_W - 20, 20, '👤 ' + username, {
       fontFamily: 'monospace', fontSize: '22px', fill: '#ffffff',
       backgroundColor: '#00000088', padding: { x:10, y:5 }
     }).setOrigin(1, 0).setDepth(50);
 
-    // Bottom-left: speed + traffic level
-    this.speedText = this.add.text(20, SCREEN_H - 60, 'Speed: 0 km/h', hs('28px')).setDepth(50);
+    this.speedText = this.add.text(20, SCREEN_H - 60,  'Speed: 0 km/h', hs('28px')).setDepth(50);
     this.diffText  = this.add.text(20, SCREEN_H - 110, 'Traffic Lvl: 1', hs('24px', '#aaffaa')).setDepth(50);
 
-    // Off-track warning (centre)
     this.offTrackText = this.add.text(SCREEN_CX, SCREEN_CY - 180, '', {
       fontSize: '64px', fill: '#ff8800', fontFamily: 'monospace',
       stroke: '#000', strokeThickness: 6
     }).setOrigin(0.5).setDepth(90).setVisible(false);
 
-    // Countdown overlay
     this.countdownText = this.add.text(SCREEN_CX, SCREEN_CY - 80, '', {
       fontSize: '220px', fill: '#e8ff00', fontFamily: 'monospace',
       stroke: '#000', strokeThickness: 12
@@ -278,7 +361,6 @@ class MainScene extends Phaser.Scene {
       fill: '#ffffff', stroke: '#000', strokeThickness: 4
     }).setOrigin(0.5).setDepth(200).setVisible(false);
 
-    // Collision overlay
     this.collisionOverlay = this.add.rectangle(SCREEN_CX, SCREEN_CY, SCREEN_W, SCREEN_H, 0xff0000, 0).setDepth(100);
     this.collisionText = this.add.text(SCREEN_CX, SCREEN_CY - 60, '⚠ COLLISION!', {
       fontSize: '72px', fill: '#ff0000', stroke: '#000', strokeThickness: 6
@@ -296,12 +378,10 @@ class MainScene extends Phaser.Scene {
     this.keyDown  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
     this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
-    // P = pause / resume
     this.input.keyboard.on('keydown-P', () => {
       if      (this._gameState === STATE_PLAY)   this._doPause();
       else if (this._gameState === STATE_PAUSED) this._doResume();
     });
-    // Q = quit only while paused
     this.input.keyboard.on('keydown-Q', () => {
       if (this._gameState === STATE_PAUSED) this._doPauseQuit();
     });
@@ -332,7 +412,7 @@ class MainScene extends Phaser.Scene {
     if (this._gameState !== STATE_PLAY) return;
     this._gameState   = STATE_PAUSED;
     this.timerRunning = false;
-    this.settings.showPaused();         // "[P] Resume" in yellow
+    this.settings.showPaused();
     this._modalPause.classList.add('show');
   }
 
@@ -340,7 +420,7 @@ class MainScene extends Phaser.Scene {
     if (this._gameState !== STATE_PAUSED) return;
     this._gameState   = STATE_PLAY;
     this.timerRunning = true;
-    this.settings.show();               // back to "[P] Pause"
+    this.settings.show();
     this._modalPause.classList.remove('show');
   }
 
@@ -348,19 +428,14 @@ class MainScene extends Phaser.Scene {
     this._modalPause.classList.remove('show');
     this._gameState   = STATE_GAMEOVER;
     this.timerRunning = false;
-
     await saveRecord(
       Math.round(this.elapsedSec * 10) / 10,
       this.levelManager.currentLevel,
       'Game Unfinished'
     );
-
-    // Update subtitle to show logout message
     var sub = this._modalGameOver.querySelector('.modal-sub');
     if (sub) sub.textContent = 'Run saved as unfinished. You are now logged out.';
     this._showGameOver();
-
-    // Auto-redirect after 4 s
     this.time.delayedCall(4000, () => {
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('username');
@@ -396,7 +471,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────
-  //  WS fallback
+  //  WS helpers
   // ─────────────────────────────────────────────────────────
   _connectWS() {
     try {
@@ -404,17 +479,28 @@ class MainScene extends Phaser.Scene {
       sharedSocket.onopen = () => {
         this.wsConnected = sharedWsConnected = true;
         sharedSocket.onmessage = (event) => {
-          try { var d = JSON.parse(event.data); if (typeof d.gesture === 'string') this.currentGesture = sharedGesture = d.gesture; } catch {}
+          try {
+            var d = JSON.parse(event.data);
+            if (typeof d.gesture === 'string') this.currentGesture = sharedGesture = d.gesture;
+            if (d.type === 'accuracy_update' || d.type === 'accuracy_report') {
+              this._gestureAccuracy = d.data;
+              if (this._accDisplay) this._refreshAccDisplay();
+            }
+          } catch {}
         };
       };
       sharedSocket.onerror = sharedSocket.onclose = () => { this.wsConnected = false; };
     } catch {}
   }
 
+  // Send a typed event to gestureControl.py via the relay
+  _sendWsEvent(payload) {
+    if (sharedSocket && sharedSocket.readyState === WebSocket.OPEN)
+      sharedSocket.send(JSON.stringify(payload));
+  }
+
   // ─────────────────────────────────────────────────────────
   //  OFF-TRACK
-  //  FIX 1: threshold > 1.0 (player.js now allows x up to ±2)
-  //  FIX 2: speed CAP not per-frame multiplier
   // ─────────────────────────────────────────────────────────
   _isOffTrack() { return Math.abs(this.player.x) > 1.0; }
 
@@ -446,36 +532,6 @@ class MainScene extends Phaser.Scene {
     this._gameState   = STATE_GAMEOVER;
     this._showGameOver();
     saveRecord(Math.round(this.elapsedSec * 10) / 10, this.levelManager.currentLevel, 'Game Unfinished');
-  }
-
-  // ─────────────────────────────────────────────────────────
-  //  MODAL actions
-  // ─────────────────────────────────────────────────────────
-  _showGameOver()    { this._hideAllModals(); this._modalGameOver.classList.add('show'); }
-  _showQuitConfirm() { this._hideAllModals(); this._modalQuitConfirm.classList.add('show'); }
-
-  _doRestart() {
-    this._hideAllModals();
-    this.elapsedSec = 0; this.offTrackTime = 0;
-    this._hideOffTrackUI();
-    this.levelManager._applyConfig();
-    this._startCountdown();
-  }
-
-  _doFullRestart() {
-    this._hideAllModals();
-    this.elapsedSec = 0; this.offTrackTime = 0;
-    this._hideOffTrackUI();
-    this.levelManager.reset();
-    this._startCountdown();
-  }
-
-  async _doQuit() {
-    this._hideAllModals();
-    await saveRecord(Math.round(this.elapsedSec * 10) / 10, this.levelManager.currentLevel, 'Game Unfinished');
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('username');
-    window.location.href = 'index.html';
   }
 
   // ─────────────────────────────────────────────────────────
@@ -529,12 +585,9 @@ class MainScene extends Phaser.Scene {
         this.traffic.update(dt);
         this.circuit.render3D();
 
-        // ── Off-track ─────────────────────────────────────
         if (this._isOffTrack()) {
-          // Cap speed to 30% of max (= 70% reduction) while off-road
           var maxOT = this.player.maxSpeed * 0.3;
           if (this.player.speed > maxOT) this.player.speed = maxOT;
-
           this.offTrackTime += dt;
           if (this.offTrackTime >= 2 && !this.offTrackWarned)
             this._startOffTrackCountdown();
@@ -543,14 +596,14 @@ class MainScene extends Phaser.Scene {
           this.offTrackTime = 0;
         }
 
-        // ── Level progression ─────────────────────────────
         var levelResult = this.levelManager.update();
         if (levelResult === 'complete') {
           this.timerRunning = false;
           this._gameState   = STATE_COMPLETE;
           saveRecord(Math.round(this.elapsedSec * 10) / 10, this.levelManager.totalLevels, 'Completed');
           this._hideAllModals();
-          this._modalAllClear.classList.add('show');
+          // TASK 3 — Show animated win screen instead of plain modal
+          this._showWinScreen(Math.round(this.elapsedSec * 10) / 10);
         } else if (levelResult === 'next') {
           this._hideAllModals();
           this._modalLevelClear.classList.add('show');
@@ -560,7 +613,6 @@ class MainScene extends Phaser.Scene {
           });
         }
 
-        // ── HUD ──────────────────────────────────────────
         var kph = Math.round(Math.abs(this.player.speed) * 0.06);
         this.speedText.setText('Speed: ' + kph + ' km/h' + (this._isOffTrack() ? '  ⚠ OFF-TRACK' : ''));
         this.diffText.setText('Traffic Lvl: ' + this.traffic.difficultyLevel + '  |  Cars: ' + this.traffic.vehicles.length);
@@ -577,7 +629,6 @@ class MainScene extends Phaser.Scene {
       }
 
       case STATE_PAUSED:
-        // Freeze everything; just re-draw the last road frame
         this.circuit.render3D();
         break;
 
@@ -585,6 +636,305 @@ class MainScene extends Phaser.Scene {
       case STATE_COMPLETE:
         break;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  //  TASK 3 — ANIMATED WIN SCREEN  (congratulations → leaderboard)
+  // ─────────────────────────────────────────────────────────
+  _showWinScreen(finalTimeSec) {
+    const username = sessionStorage.getItem('username') || 'DRIVER';
+    const overlay  = document.createElement('div');
+    overlay.id = 'win-overlay';
+
+    overlay.innerHTML = `
+      <style>
+        #win-overlay {
+          position: fixed; inset: 0; z-index: 10000;
+          background: rgba(0,0,0,0.92);
+          display: flex; flex-direction: column;
+          align-items: center; justify-content: flex-start;
+          padding: 40px 20px; overflow-y: auto;
+          font-family: 'Bebas Neue','Arial Black',sans-serif;
+        }
+        .win-congrats {
+          text-align: center; margin-bottom: 32px;
+          opacity: 0; transform: translateY(-30px);
+          animation: winSlideIn 0.7s 0.1s ease forwards;
+        }
+        @keyframes winSlideIn {
+          to { opacity: 1; transform: none; }
+        }
+        .win-trophy   { font-size: 80px; line-height: 1; }
+        .win-title    { font-size: 72px; color: #e8ff00; letter-spacing: 3px; line-height: 1; }
+        .win-subtitle { font-family: monospace; font-size: 18px; color: #888; margin-top: 8px; letter-spacing: 2px; }
+        .win-time     { font-size: 40px; color: #fff; margin-top: 10px; }
+        .win-time span { color: #e8ff00; }
+
+        .win-lb-title {
+          font-family: monospace; font-size: 13px; letter-spacing: 5px;
+          text-transform: uppercase; color: #e8ff00; margin-bottom: 16px;
+          opacity: 0; animation: winSlideIn 0.5s 0.8s ease forwards;
+        }
+        .win-lb-table { width: 700px; max-width: 96vw; border-collapse: collapse; }
+        .win-lb-row {
+          opacity: 0; transform: translateX(-40px);
+          transition: background 0.3s;
+        }
+        .win-lb-row td {
+          padding: 10px 14px; font-family: monospace; font-size: 15px;
+          border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .win-lb-row.rank-1 { background: linear-gradient(90deg,rgba(255,215,0,0.14),transparent); }
+        .win-lb-row.rank-2 { background: linear-gradient(90deg,rgba(192,192,192,0.08),transparent); }
+        .win-lb-row.rank-3 { background: linear-gradient(90deg,rgba(205,127,50,0.08),transparent); }
+        .win-lb-row.is-me  { background: linear-gradient(90deg,rgba(232,255,0,0.10),transparent);
+                              box-shadow: inset 3px 0 0 #e8ff00; }
+        .win-lb-row td.rank-icon { font-size: 20px; width: 36px; }
+        .win-lb-row td.lb-name { color: #fff; font-weight: 600; }
+        .win-lb-row.rank-1 td.lb-name { color: #ffd700; }
+        .win-lb-row.is-me  td.lb-name { color: #e8ff00; }
+        .win-lb-row td.lb-time { color: #e8ff00; font-size: 14px; }
+        .win-lb-row td.lb-badge {
+          font-size: 11px; padding: 3px 8px; border-radius: 2px;
+          text-transform: uppercase; letter-spacing: 1px;
+        }
+        .win-lb-row td.lb-badge.done       { background: rgba(232,255,0,0.15); color: #e8ff00; }
+        .win-lb-row td.lb-badge.unfinished { background: rgba(255,60,60,0.15);  color: #ff3c3c; }
+        .win-lb-row.visible-row {
+          animation: lbRowIn 0.5s ease forwards;
+        }
+        @keyframes lbRowIn {
+          from { opacity: 0; transform: translateX(-40px); }
+          to   { opacity: 1; transform: none; }
+        }
+        .win-player-rank {
+          margin-top: 12px; margin-bottom: 24px;
+          font-family: monospace; font-size: 15px; color: #aaa;
+          opacity: 0; animation: winSlideIn 0.5s 1s ease forwards;
+        }
+        .win-player-rank span { color: #e8ff00; font-size: 18px; }
+        .win-btn-row {
+          display: flex; gap: 16px; margin-top: 32px;
+          opacity: 0; animation: winSlideIn 0.5s 0.9s ease forwards;
+        }
+        .win-btn {
+          font-family: 'Bebas Neue',sans-serif; font-size: 22px; letter-spacing: 2px;
+          padding: 14px 40px; border: none; border-radius: 4px;
+          cursor: pointer; transition: opacity .15s, transform .1s;
+        }
+        .win-btn:hover { opacity: 0.85; }
+        .win-btn:active { transform: scale(0.97); }
+        .win-btn-primary   { background: #e8ff00; color: #000; }
+        .win-btn-secondary { background: #1e1e2e; color: #fff; border: 1px solid #444; }
+
+        /* ── ACCURACY PANEL ── */
+        .win-acc-panel {
+          width: 700px; max-width: 96vw; margin: 20px 0 0;
+          background: rgba(255,255,255,0.03); border: 1px solid #1e1e2e;
+          border-radius: 6px; padding: 20px 28px;
+          opacity: 0; animation: winSlideIn 0.5s 1.1s ease forwards;
+        }
+        .win-acc-title {
+          font-family: monospace; font-size: 12px; letter-spacing: 4px;
+          text-transform: uppercase; color: #e8ff00; margin-bottom: 14px;
+        }
+        .win-acc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+        .win-acc-stat { font-family: monospace; font-size: 14px; color: #aaa; }
+        .win-acc-stat span { color: #fff; font-size: 16px; }
+        .win-acc-bar-wrap {
+          grid-column: 1/-1; margin-top: 10px;
+          background: #1a1a2e; border-radius: 4px; height: 14px; overflow: hidden;
+        }
+        .win-acc-bar { height: 100%; border-radius: 4px; transition: width 1.2s ease; }
+        .win-acc-pct {
+          grid-column: 1/-1; text-align: right;
+          font-family: 'Bebas Neue',sans-serif; font-size: 36px; color: #e8ff00;
+          margin-top: 4px;
+        }
+      </style>
+
+      <div class="win-congrats">
+        <div class="win-trophy">🏆</div>
+        <div class="win-title">ALL LEVELS COMPLETE</div>
+        <div class="win-subtitle">LEGENDARY PERFORMANCE — ALL 3 STAGES CLEARED</div>
+        <div class="win-time">Final Time: <span id="winFinalTime">--:--.-</span></div>
+      </div>
+
+      <div class="win-lb-title">🏁 GLOBAL LEADERBOARD 🏁</div>
+      <div class="win-player-rank" id="winPlayerRank">Fetching your rank…</div>
+      <table class="win-lb-table" id="winLbTable"><tbody id="winLbBody"></tbody></table>
+
+      <div class="win-acc-panel" id="winAccPanel">
+        <div class="win-acc-title">📊 Gesture Accuracy Report</div>
+        <div class="win-acc-grid" id="winAccGrid">
+          <div class="win-acc-stat">Total Gestures: <span id="accTotal">—</span></div>
+          <div class="win-acc-stat">Correct: <span id="accCorrect">—</span></div>
+          <div class="win-acc-stat">Incorrect: <span id="accIncorrect">—</span></div>
+          <div class="win-acc-stat">Session Frames: <span id="accFrames">—</span></div>
+          <div class="win-acc-bar-wrap"><div class="win-acc-bar" id="accBar" style="width:0%;background:#e8ff00"></div></div>
+          <div class="win-acc-pct" id="accPct">—%</div>
+        </div>
+      </div>
+
+      <div class="win-btn-row">
+        <button class="win-btn win-btn-primary"   id="winBtnPlay">PLAY AGAIN</button>
+        <button class="win-btn win-btn-secondary" id="winBtnQuit">QUIT</button>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Set final time
+    document.getElementById('winFinalTime').textContent = formatTime(finalTimeSec);
+
+    // Wire buttons
+    document.getElementById('winBtnPlay').addEventListener('click', () => {
+      overlay.remove();
+      this._winOverlay = null;
+      this._doFullRestart();
+    });
+    document.getElementById('winBtnQuit').addEventListener('click', () => {
+      overlay.remove();
+      this._doQuit();
+    });
+
+    this._winOverlay = overlay;
+
+    // Request accuracy data from Python immediately
+    this._sendWsEvent({ type: 'request_accuracy' });
+
+    // Populate accuracy panel from cached data if already received
+    if (this._gestureAccuracy) this._refreshAccDisplay();
+
+    // Fetch & animate leaderboard
+    this._animateWinLeaderboard(username);
+  }
+
+  async _animateWinLeaderboard(username) {
+    const tbody      = document.getElementById('winLbBody');
+    const rankEl     = document.getElementById('winPlayerRank');
+    const rankIcons  = ['🥇', '🥈', '🥉'];
+    const rankClasses = ['rank-1', 'rank-2', 'rank-3'];
+
+    try {
+      const res  = await fetch(`${API_BASE}/leaderboard`);
+      const rows = await res.json();
+
+      tbody.innerHTML = '';
+
+      // Find player's rank
+      const playerRankIdx = rows.findIndex(r => r.username === username);
+      if (playerRankIdx >= 0) {
+        rankEl.innerHTML = `Your rank: <span>#${playerRankIdx + 1}</span> out of ${rows.length} drivers`;
+      } else {
+        rankEl.textContent = 'Leaderboard updated!';
+      }
+
+      // Build all rows (hidden initially)
+      const displayRows = rows.slice(0, 10).map((r, i) => {
+        const rankIcon  = rankIcons[i]  || (i + 1).toString();
+        const rowCls    = rankClasses[i] || '';
+        const isMeCls   = (r.username === username) ? 'is-me' : '';
+        const badgeCls  = r.status === 'Completed' ? 'done' : 'unfinished';
+        const badgeTxt  = r.status === 'Completed' ? '✓ Done' : 'DNF';
+        const timeStr   = formatTime(r.time_completed);
+
+        const tr = document.createElement('tr');
+        tr.className = `win-lb-row ${rowCls} ${isMeCls}`.trim();
+        tr.innerHTML = `
+          <td class="rank-icon">${rankIcon}</td>
+          <td class="lb-name">${escHtml(r.username)}</td>
+          <td class="lb-time">${timeStr}</td>
+          <td class="lb-badge ${badgeCls}">${badgeTxt}</td>
+        `;
+        tbody.appendChild(tr);
+        return tr;
+      });
+
+      // Animate rows one-by-one
+      displayRows.forEach((tr, i) => {
+        setTimeout(() => {
+          tr.classList.add('visible-row');
+        }, 900 + i * 180);   // 180 ms stagger per row; starts after lb-title fades in
+      });
+
+    } catch (e) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:#555;font-size:13px;padding:12px">Could not load leaderboard.</td></tr>';
+      rankEl.textContent = '';
+    }
+  }
+
+  // Refresh the accuracy panel inside the win screen
+  _refreshAccDisplay() {
+    const d = this._gestureAccuracy;
+    if (!d) return;
+
+    var totalEl    = document.getElementById('accTotal');
+    var correctEl  = document.getElementById('accCorrect');
+    var incorrectEl= document.getElementById('accIncorrect');
+    var framesEl   = document.getElementById('accFrames');
+    var barEl      = document.getElementById('accBar');
+    var pctEl      = document.getElementById('accPct');
+
+    if (!totalEl) return;  // win screen not visible yet
+
+    totalEl.textContent     = d.total_gestures     ?? '—';
+    correctEl.textContent   = d.correct_detections ?? '—';
+    incorrectEl.textContent = d.incorrect_detections ?? '—';
+    framesEl.textContent    = d.total_frames        ?? '—';
+
+    var pct = d.accuracy ?? 0;
+    pctEl.textContent = pct.toFixed(1) + '%';
+
+    // Colour: green ≥ 80, yellow 60–79, red < 60
+    var barColor = pct >= 80 ? '#00e676' : pct >= 60 ? '#e8ff00' : '#ff3c3c';
+    if (barEl) { barEl.style.width = pct + '%'; barEl.style.background = barColor; }
+    if (pctEl) pctEl.style.color = barColor;
+
+    // Also store for the HUD accuracy display in-game (if accessed mid-game)
+    this._accDisplay = true;
+  }
+
+  // ─────────────────────────────────────────────────────────
+  //  MODAL actions
+  // ─────────────────────────────────────────────────────────
+  _showGameOver()    { this._hideAllModals(); this._modalGameOver.classList.add('show'); }
+  _showQuitConfirm() { this._hideAllModals(); this._modalQuitConfirm.classList.add('show'); }
+
+  _doRestart() {
+    // ── Reset leaderboard guard so the next run can save ──
+    _savedRecordThisRun = false;
+
+    this._hideAllModals();
+    this.elapsedSec = 0; this.offTrackTime = 0;
+    this._hideOffTrackUI();
+    this.levelManager._applyConfig();
+    // Notify Python to reset accuracy tracker
+    this._sendWsEvent({ type: 'game_reset' });
+    this._gestureAccuracy = null;
+    this._startCountdown();
+  }
+
+  _doFullRestart() {
+    // ── Reset leaderboard guard so the next run can save ──
+    _savedRecordThisRun = false;
+
+    this._hideAllModals();
+    this.elapsedSec = 0; this.offTrackTime = 0;
+    this._hideOffTrackUI();
+    this.levelManager.reset();
+    // Notify Python to reset accuracy tracker
+    this._sendWsEvent({ type: 'game_reset' });
+    this._gestureAccuracy = null;
+    this._startCountdown();
+  }
+
+  async _doQuit() {
+    this._hideAllModals();
+    await saveRecord(Math.round(this.elapsedSec * 10) / 10, this.levelManager.currentLevel, 'Game Unfinished');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('username');
+    window.location.href = 'index.html';
   }
 
   // ─────────────────────────────────────────────────────────
@@ -622,16 +972,12 @@ class MainScene extends Phaser.Scene {
 
     this._modalLevelClear = this._makeModal('LEVEL CLEAR!', 'Get ready for the next stage…', []);
 
-    this._modalAllClear = this._makeModal('YOU WIN! 🏆', 'All 3 levels complete. Legendary.',
-      [{ label:'PLAY AGAIN', cls:'btn-primary',   cb:()=>this._doFullRestart() },
-       { label:'QUIT',       cls:'btn-secondary',  cb:()=>this._doQuit() }]);
-
     this._modalQuitConfirm = this._makeModal('LOG OUT?',
       'Your progress will be saved as "Game Unfinished".',
       [{ label:'YES, QUIT', cls:'btn-danger',    cb:()=>this._doQuit() },
        { label:'NO, BACK',  cls:'btn-secondary', cb:()=>this._showGameOver() }]);
 
-    document.body.append(this._modalGameOver, this._modalLevelClear, this._modalAllClear, this._modalQuitConfirm);
+    document.body.append(this._modalGameOver, this._modalLevelClear, this._modalQuitConfirm);
   }
 
   _makeModal(title, sub, buttons) {
@@ -652,13 +998,13 @@ class MainScene extends Phaser.Scene {
   }
 
   _hideAllModals() {
-    [this._modalGameOver, this._modalLevelClear, this._modalAllClear,
+    [this._modalGameOver, this._modalLevelClear,
      this._modalQuitConfirm, this._modalPause].forEach(m => m && m.classList.remove('show'));
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-//  PauseScene — kept empty; pause is handled by DOM modal
+//  PauseScene — kept empty; pause handled by DOM modal
 // ══════════════════════════════════════════════════════════════
 class PauseScene extends Phaser.Scene {
   constructor() { super({ key: 'ScenePause' }); }

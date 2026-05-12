@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS leaderboard (
   username         VARCHAR(50)   NOT NULL,
 
   -- NULL means still playing / abandoned before finishing
-  time_completed   FLOAT         NULL         COMMENT 'Total seconds for a full 6-level run',
+  time_completed   FLOAT         NULL         COMMENT 'Total seconds for a full 3-level run',
 
   levels_completed TINYINT       NOT NULL DEFAULT 0,
 

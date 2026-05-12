@@ -1,7 +1,13 @@
 node_modules/
 venv/
+venv-train/
 .env
 .DS_Store 
-gestureControl.txt
-landmarking_training.txt
+gestureControl(original).txt
+collect_dataset.txt
+original_mainjs.txt
+dataset/
+dataset.zip
+gestureModelTrainer.py
+
 

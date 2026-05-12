@@ -15,7 +15,7 @@
   --accent:    #e8ff00;
   --accent2:   #ff3c3c;
   --text:      #e8e8f0;
-  --muted:     #55556a;
+  --muted:     #6a6a82;
   --font-head: 'Bebas Neue', sans-serif;
   --font-mono: 'DM Mono', monospace;
   --font-body: 'Inter', sans-serif;
@@ -27,9 +27,11 @@ body {
 }
 
 /* ── Left panel ───────────────────────────────────────── */
+/* CHANGED: justify-content flex-start (was flex-end) so title sits up top.
+   Padding-top reduced from 60 → 40 so the logo can breathe near the edge. */
 .branding {
   position: relative; display: flex; flex-direction: column;
-  justify-content: flex-end; padding: 60px; overflow: hidden;
+  justify-content: flex-start; padding: 40px 60px 30px; overflow: hidden;
   background: linear-gradient(135deg, #0d0d18 0%, #1a0a0a 100%);
 }
 .branding::before {
@@ -58,45 +60,52 @@ body {
   to   { background-position: 0 80px; }
 }
 .branding-content { position: relative; z-index: 1; }
+
+/* CHANGED: bigger logo (was 64–110px clamp). */
 .logo {
-  font-family: var(--font-head); font-size: clamp(64px, 8vw, 110px);
+  font-family: var(--font-head); font-size: clamp(60px, 7vw, 110px);
   line-height: 0.9; color: var(--accent); letter-spacing: 2px;
   text-shadow: 0 0 60px rgba(232,255,0,0.3);
 }
+/* CHANGED: bigger tagline (was 13px). */
 .tagline {
-  font-family: var(--font-mono); font-size: 13px; color: var(--muted);
-  letter-spacing: 3px; text-transform: uppercase; margin-top: 16px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  letter-spacing: 4px; text-transform: uppercase; margin-top: 18px;
 }
 
 /* ── Leaderboard ─────────────────────────────────────── */
-.lb-panel { margin-top: 40px; border-top: 1px solid var(--border); padding-top: 24px; }
+/* CHANGED: smaller margin-top so it sits right under the title (was 40px). */
+.lb-panel { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 22px; }
+
+/* CHANGED: bigger title (was 11px). */
 .lb-title {
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 4px;
-  text-transform: uppercase; color: var(--accent); margin-bottom: 12px;
+  font-family: var(--font-mono); font-size: 14px; letter-spacing: 4px;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 14px;
 }
-.lb-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.lb-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+
+/* CHANGED: bigger row text (was 13px) and bigger rank column (was 24px). */
 .lb-row {
-  display: grid; grid-template-columns: 24px 1fr auto auto;
-  gap: 12px; align-items: center; font-size: 13px;
-  padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+  display: grid; grid-template-columns: 32px 1fr auto auto;
+  gap: 14px; align-items: center; font-size: 16px;
+  padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
   opacity: 0; animation: fadeUp 0.4s ease forwards;
   transition: transform 0.2s;
 }
-/* ── TOP 3 HIGHLIGHTS ──────────────────────────────────── */
 .lb-row.rank-1 {
   background: linear-gradient(90deg, rgba(255,215,0,0.10) 0%, transparent 100%);
-  border-radius: 4px; padding: 8px 6px;
+  border-radius: 4px; padding: 10px 8px;
   box-shadow: inset 0 0 0 1px rgba(255,215,0,0.25), 0 0 18px rgba(255,215,0,0.08);
   transform: scale(1.02);
 }
 .lb-row.rank-2 {
   background: linear-gradient(90deg, rgba(170,170,170,0.08) 0%, transparent 100%);
-  border-radius: 4px; padding: 7px 6px;
+  border-radius: 4px; padding: 9px 8px;
   box-shadow: inset 0 0 0 1px rgba(170,170,170,0.18);
 }
 .lb-row.rank-3 {
   background: linear-gradient(90deg, rgba(205,127,50,0.07) 0%, transparent 100%);
-  border-radius: 4px; padding: 7px 6px;
+  border-radius: 4px; padding: 9px 8px;
   box-shadow: inset 0 0 0 1px rgba(205,127,50,0.15);
 }
 .lb-row:nth-child(1) { animation-delay: 0.1s; }
@@ -108,24 +117,41 @@ body {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: none; }
 }
-/* Rank 1 keeps its scale even after fadeUp animation ends */
 .lb-row.rank-1 { animation-fill-mode: none; opacity: 1; transform: scale(1.02); }
 
-.lb-rank { font-family: var(--font-mono); color: var(--muted); font-size: 11px; }
-.lb-rank.gold   { color: #ffd700; font-size: 13px; text-shadow: 0 0 10px rgba(255,215,0,0.6); }
-.lb-rank.silver { color: #c0c0c0; font-size: 12px; }
-.lb-rank.bronze { color: #cd7f32; font-size: 12px; }
+/* CHANGED: bigger rank icons (were 11–13px). */
+.lb-rank { font-family: var(--font-mono); color: var(--muted); font-size: 14px; }
+.lb-rank.gold   { color: #ffd700; font-size: 18px; text-shadow: 0 0 10px rgba(255,215,0,0.6); }
+.lb-rank.silver { color: #c0c0c0; font-size: 16px; }
+.lb-rank.bronze { color: #cd7f32; font-size: 16px; }
 .lb-name  { color: var(--text); font-weight: 500; }
 .lb-row.rank-1 .lb-name { color: #ffd700; font-weight: 700; }
 .lb-row.rank-2 .lb-name { color: #c8c8d0; font-weight: 600; }
-.lb-time  { font-family: var(--font-mono); color: var(--accent); font-size: 12px; }
-.lb-row.rank-1 .lb-time { color: #ffd700; font-size: 13px; }
+
+/* CHANGED: bigger time (was 12–13px). */
+.lb-time  { font-family: var(--font-mono); color: var(--accent); font-size: 15px; }
+.lb-row.rank-1 .lb-time { color: #ffd700; font-size: 16px; }
+
 .lb-badge {
-  font-size: 10px; padding: 2px 6px; border-radius: 2px;
+  font-size: 11px; padding: 3px 8px; border-radius: 2px;
   text-transform: uppercase; letter-spacing: 1px;
 }
 .lb-badge.done { background: rgba(232,255,0,0.15); color: var(--accent); }
 .lb-badge.unfinished { background: rgba(255,60,60,0.15); color: var(--accent2); }
+
+/* ── View Full Leaderboard button (NEW) ───────────────── */
+.lb-view-full-wrap { margin-top: 18px; text-align: center; }
+.btn-view-full {
+  background: transparent;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-mono); font-size: 14px; letter-spacing: 3px;
+  text-transform: uppercase;
+  padding: 12px 28px; border-radius: 4px;
+  cursor: pointer; transition: background 0.18s, color 0.18s, transform 0.1s;
+}
+.btn-view-full:hover  { background: var(--accent); color: #000; }
+.btn-view-full:active { transform: scale(0.97); }
 
 /* ── Right panel ─────────────────────────────────────── */
 .auth-panel {
@@ -134,39 +160,136 @@ body {
   border-left: 1px solid var(--border); overflow-y: auto;
 }
 .tab-bar { display: flex; gap: 0; margin-bottom: 40px; border-bottom: 1px solid var(--border); }
+
+/* CHANGED: bigger tabs (was 13px). */
 .tab {
-  font-family: var(--font-mono); font-size: 13px; letter-spacing: 2px;
-  text-transform: uppercase; padding: 12px 0; margin-right: 32px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 16px; letter-spacing: 2px;
+  text-transform: uppercase; padding: 14px 0; margin-right: 36px; cursor: pointer;
   color: var(--muted); border-bottom: 2px solid transparent;
   transition: color 0.2s, border-color 0.2s; background: none;
   border-top: none; border-left: none; border-right: none; user-select: none;
 }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.form-heading { font-family: var(--font-head); font-size: 52px; line-height: 1; margin-bottom: 32px; }
-.field { margin-bottom: 20px; }
+
+/* CHANGED: bigger heading (was 52px). */
+.form-heading { font-family: var(--font-head); font-size: 64px; line-height: 1; margin-bottom: 32px; }
+.field { margin-bottom: 22px; }
+
+/* CHANGED: bigger label (was 11px). */
 .field label {
-  display: block; font-family: var(--font-mono); font-size: 11px;
-  letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+  display: block; font-family: var(--font-mono); font-size: 13px;
+  letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 10px;
 }
+
+/* CHANGED: bigger input (was 15px). */
 .field input {
   width: 100%; background: var(--bg); border: 1px solid var(--border);
-  color: var(--text); font-family: var(--font-mono); font-size: 15px;
-  padding: 14px 16px; border-radius: 4px; outline: none; transition: border-color 0.2s;
+  color: var(--text); font-family: var(--font-mono); font-size: 17px;
+  padding: 16px 18px; border-radius: 4px; outline: none; transition: border-color 0.2s;
 }
 .field input:focus { border-color: var(--accent); }
 .field input::placeholder { color: var(--muted); }
+
+/* CHANGED: bigger submit button (was 22px / 16px padding). */
 .btn-submit {
-  width: 100%; margin-top: 8px; padding: 16px; background: var(--accent); color: #000;
-  border: none; font-family: var(--font-head); font-size: 22px; letter-spacing: 3px;
+  width: 100%; margin-top: 10px; padding: 18px; background: var(--accent); color: #000;
+  border: none; font-family: var(--font-head); font-size: 26px; letter-spacing: 3px;
   cursor: pointer; border-radius: 4px; transition: opacity .15s, transform .1s;
 }
 .btn-submit:hover  { opacity: 0.88; }
 .btn-submit:active { transform: scale(0.98); }
-.msg { margin-top: 14px; font-family: var(--font-mono); font-size: 13px; padding: 10px 14px; border-radius: 4px; display: none; }
+
+/* CHANGED: bigger msg (was 13px). */
+.msg { margin-top: 16px; font-family: var(--font-mono); font-size: 14px; padding: 12px 16px; border-radius: 4px; display: none; }
 .msg.error   { background: rgba(255,60,60,0.12); color: var(--accent2); display: block; }
 .msg.success { background: rgba(232,255,0,0.10); color: var(--accent);  display: block; }
 .auth-form { display: none; }
 .auth-form.active { display: block; }
+
+/* ── FULL LEADERBOARD MODAL (NEW) ──────────────────────── */
+.lb-modal-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.85);
+  display: none; align-items: center; justify-content: center;
+  backdrop-filter: blur(8px);
+  animation: lbFadeIn 0.25s ease;
+}
+.lb-modal-overlay.show { display: flex; }
+@keyframes lbFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.lb-modal-box {
+  width: min(900px, 96vw);
+  max-height: 90vh;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: lbModalPop 0.3s ease;
+}
+@keyframes lbModalPop {
+  from { transform: scale(0.92); opacity: 0; }
+  to   { transform: none;        opacity: 1; }
+}
+.lb-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 24px 32px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(232,255,0,0.05), transparent);
+}
+.lb-modal-title {
+  font-family: var(--font-head); font-size: 42px;
+  color: var(--accent); letter-spacing: 3px;
+}
+.lb-modal-close {
+  background: none; border: 1px solid var(--border);
+  color: var(--text); font-family: var(--font-mono); font-size: 14px;
+  padding: 8px 16px; border-radius: 4px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lb-modal-close:hover { background: var(--border); border-color: var(--accent); }
+
+.lb-modal-body {
+  flex: 1; overflow-y: auto; padding: 16px 0;
+}
+.lb-table {
+  width: 100%; border-collapse: collapse;
+}
+.lb-table th {
+  position: sticky; top: 0;
+  background: var(--surface);
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 2px;
+  text-transform: uppercase; color: var(--muted);
+  padding: 14px 24px; text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.lb-table td {
+  padding: 14px 24px;
+  font-family: var(--font-mono); font-size: 15px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.lb-table tr.full-rank-1 td { color: #ffd700; background: rgba(255,215,0,0.06); }
+.lb-table tr.full-rank-2 td { color: #c0c0c0; background: rgba(192,192,192,0.04); }
+.lb-table tr.full-rank-3 td { color: #cd7f32; background: rgba(205,127,50,0.04); }
+.lb-table td.col-rank { color: var(--muted); width: 60px; }
+.lb-table tr.full-rank-1 td.col-rank,
+.lb-table tr.full-rank-2 td.col-rank,
+.lb-table tr.full-rank-3 td.col-rank { font-size: 18px; }
+.lb-table td.col-name { color: var(--text); font-weight: 500; }
+.lb-table tr.full-rank-1 td.col-name { font-weight: 700; }
+.lb-table td.col-time { color: var(--accent); }
+.lb-table td.col-status { font-size: 12px; }
+.lb-table td.col-status.done       { color: var(--accent); }
+.lb-table td.col-status.unfinished { color: var(--accent2); }
+.lb-table td.col-date { color: var(--muted); font-size: 13px; }
+
+.lb-modal-footer {
+  padding: 14px 32px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 12px; color: var(--muted);
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   body { grid-template-columns: 1fr; }
   .branding { display: none; }
@@ -181,11 +304,15 @@ body {
   <div class="branding-content">
     <div class="logo">ZENITH<br>DRIVEN</div>
     <div class="tagline">Hand-Gesture Racing</div>
+
     <div class="lb-panel">
-      <div class="lb-title">Live Leaderboard</div>
+      <div class="lb-title">Live Leaderboard · Top 5</div>
       <ul class="lb-list" id="lbList">
-        <li class="lb-row" style="color:var(--muted);grid-column:1/-1;font-size:12px;">Loading…</li>
+        <li class="lb-row" style="color:var(--muted);grid-column:1/-1;font-size:14px;">Loading…</li>
       </ul>
+      <div class="lb-view-full-wrap">
+        <button class="btn-view-full" id="btnViewFull">View Full Leaderboard ›</button>
+      </div>
     </div>
   </div>
 </section>
@@ -229,9 +356,40 @@ body {
   </div>
 </section>
 
+<!-- ── FULL LEADERBOARD MODAL ────────────────────────────── -->
+<div class="lb-modal-overlay" id="lbFullModal">
+  <div class="lb-modal-box">
+    <div class="lb-modal-header">
+      <div class="lb-modal-title">🏁 GLOBAL LEADERBOARD · TOP 50</div>
+      <button class="lb-modal-close" id="lbModalClose">CLOSE ✕</button>
+    </div>
+    <div class="lb-modal-body">
+      <table class="lb-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Driver</th>
+            <th>Time</th>
+            <th>Levels</th>
+            <th>Status</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody id="lbFullBody">
+          <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="lb-modal-footer">
+      Top 50 records · refreshed when modal opens
+    </div>
+  </div>
+</div>
+
 <script>
 const API = 'http://localhost:3000/api';
 
+// ── Tab switching ─────────────────────────────────────
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab, .auth-form').forEach(el => el.classList.remove('active'));
@@ -240,6 +398,7 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
+// ── Sign in ───────────────────────────────────────────
 document.getElementById('si-btn').addEventListener('click', async () => {
   const username = document.getElementById('si-user').value.trim();
   const password = document.getElementById('si-pass').value;
@@ -260,6 +419,7 @@ document.getElementById('si-btn').addEventListener('click', async () => {
   }
 });
 
+// ── Sign up ───────────────────────────────────────────
 document.getElementById('su-btn').addEventListener('click', async () => {
   const username = document.getElementById('su-user').value.trim();
   const password = document.getElementById('su-pass').value;
@@ -284,19 +444,21 @@ document.getElementById('su-btn').addEventListener('click', async () => {
   }
 });
 
+// ── Live leaderboard (top 5) ──────────────────────────
 async function loadLeaderboard() {
   const list = document.getElementById('lbList');
   try {
     const res  = await fetch(`${API}/leaderboard`);
     const rows = await res.json();
     if (!rows.length) {
-      list.innerHTML = '<li style="color:var(--muted);font-size:12px;grid-column:1/-1">No records yet. Be the first!</li>';
+      list.innerHTML = '<li style="color:var(--muted);font-size:14px;grid-column:1/-1">No records yet. Be the first!</li>';
       return;
     }
     const rankClasses = ['rank-1', 'rank-2', 'rank-3'];
     const rankLabels  = ['gold',   'silver', 'bronze'];
     const rankIcons   = ['🥇', '🥈', '🥉'];
-    list.innerHTML = rows.slice(0, 8).map((r, i) => {
+    // CHANGED: top 5 (was 8)
+    list.innerHTML = rows.slice(0, 5).map((r, i) => {
       const timeStr    = r.time_completed != null ? formatTime(r.time_completed) : '—';
       const rowClass   = rankClasses[i] || '';
       const rankClass  = rankLabels[i]  || '';
@@ -312,26 +474,89 @@ async function loadLeaderboard() {
         </li>`;
     }).join('');
   } catch {
-    list.innerHTML = '<li style="color:var(--muted);font-size:12px;grid-column:1/-1">Could not load leaderboard.</li>';
+    list.innerHTML = '<li style="color:var(--muted);font-size:14px;grid-column:1/-1">Could not load leaderboard.</li>';
   }
 }
 
+// ── Full leaderboard modal (top 50) ──────────────────
+const lbModal      = document.getElementById('lbFullModal');
+const lbModalBody  = document.getElementById('lbFullBody');
+const lbModalClose = document.getElementById('lbModalClose');
+const btnViewFull  = document.getElementById('btnViewFull');
+
+async function loadFullLeaderboard() {
+  lbModalBody.innerHTML =
+    '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">Loading…</td></tr>';
+
+  try {
+    const res  = await fetch(`${API}/leaderboard/full`);
+    const rows = await res.json();
+
+    if (!rows.length) {
+      lbModalBody.innerHTML =
+        '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px;">No records yet. Be the first!</td></tr>';
+      return;
+    }
+
+    const medals = ['🥇','🥈','🥉'];
+    lbModalBody.innerHTML = rows.map((r, i) => {
+      const rankCls = i < 3 ? `full-rank-${i + 1}` : '';
+      const rank    = i < 3 ? medals[i] : '#' + (i + 1);
+      const time    = r.time_completed != null ? formatTime(r.time_completed) : '—';
+      const stCls   = r.status === 'Completed' ? 'done' : 'unfinished';
+      const stTxt   = r.status === 'Completed' ? '✓ Done' : 'DNF';
+      const date    = r.date || '—';
+      return `
+        <tr class="${rankCls}">
+          <td class="col-rank">${rank}</td>
+          <td class="col-name">${escHtml(r.username)}</td>
+          <td class="col-time">${time}</td>
+          <td>${r.levels_completed}</td>
+          <td class="col-status ${stCls}">${stTxt}</td>
+          <td class="col-date">${date}</td>
+        </tr>`;
+    }).join('');
+
+  } catch (e) {
+    lbModalBody.innerHTML =
+      '<tr><td colspan="6" style="text-align:center;color:var(--accent2);padding:30px;">Could not load leaderboard.</td></tr>';
+  }
+}
+
+btnViewFull.addEventListener('click', () => {
+  lbModal.classList.add('show');
+  loadFullLeaderboard();
+});
+lbModalClose.addEventListener('click', () => lbModal.classList.remove('show'));
+lbModal.addEventListener('click', (e) => {
+  // Close when clicking outside the box
+  if (e.target === lbModal) lbModal.classList.remove('show');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && lbModal.classList.contains('show'))
+    lbModal.classList.remove('show');
+});
+
+// ── Helpers ───────────────────────────────────────────
 function formatTime(secs) {
   const m = Math.floor(secs / 60).toString().padStart(2, '0');
   const s = (secs % 60).toFixed(1).padStart(4, '0');
   return `${m}:${s}`;
 }
 function escHtml(str) {
-  return str.replace(/[&<>"']/g, c =>
+  return String(str).replace(/[&<>"']/g, c =>
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 function showMsg(el, type, text) { el.className = 'msg ' + type; el.textContent = text; }
 
+// Initial load + auto-refresh every 30s
 loadLeaderboard();
 setInterval(loadLeaderboard, 30_000);
 
+// Enter key on auth forms
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
+  if (lbModal.classList.contains('show')) return; // ignore Enter inside modal
   const active = document.querySelector('.auth-form.active');
   if (active?.id === 'signin') document.getElementById('si-btn').click();
   if (active?.id === 'signup') document.getElementById('su-btn').click();
