@@ -1,7 +1,12 @@
-// backend/db.js (for future folder structure)
+// db.js
 // MySQL2 connection pool with automatic database + table creation.
-// Root cause fix: pool was connecting to 'racing_game' before it existed.
-// Fix: connect without a database first, create DB + tables, then export the pool.
+//
+// LEADERBOARD POLICY (this revision):
+//   Reverted to "every play = new row" model.
+//   No UNIQUE constraint on user_id, no upsert.
+//   When a user replays they appear as a separate row with their new time.
+//   The leaderboard endpoint orders by status + time, so a user's best
+//   run naturally floats to the top while older runs remain visible.
 
 require('dotenv').config();
 const mysql = require('mysql2/promise');
@@ -28,7 +33,7 @@ async function bootstrap() {
     );
     await conn.query(`USE \`${DB_NAME}\``);
 
-    // Create tables
+    // ── Users table ──────────────────────────────────────────
     await conn.query(`
       CREATE TABLE IF NOT EXISTS users (
         id            INT          AUTO_INCREMENT PRIMARY KEY,
@@ -38,6 +43,7 @@ async function bootstrap() {
       )
     `);
 
+    // ── Sessions table ───────────────────────────────────────
     await conn.query(`
       CREATE TABLE IF NOT EXISTS sessions (
         id         INT          AUTO_INCREMENT PRIMARY KEY,
@@ -48,6 +54,8 @@ async function bootstrap() {
       )
     `);
 
+    // ── Leaderboard table ────────────────────────────────────
+    // No UNIQUE on user_id — every save creates a new row.
     await conn.query(`
       CREATE TABLE IF NOT EXISTS leaderboard (
         id               INT         AUTO_INCREMENT PRIMARY KEY,
@@ -61,13 +69,34 @@ async function bootstrap() {
       )
     `);
 
-    // Create index (ignore error if already exists)
+    // ── Migration: drop UNIQUE KEY uk_user_id if it was added previously ──
+    // This is safe to run even on fresh installs (catches no-such-key error).
+    try {
+      const [idxRows] = await conn.query(`
+        SELECT COUNT(*) AS cnt
+        FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'leaderboard'
+          AND INDEX_NAME   = 'uk_user_id'
+      `);
+      if (idxRows[0].cnt > 0) {
+        await conn.query(`ALTER TABLE leaderboard DROP INDEX uk_user_id`);
+        console.log('[DB] Migration: dropped legacy UNIQUE KEY uk_user_id (multi-row mode).');
+      }
+    } catch (e) {
+      console.warn('[DB] Migration warning (non-fatal):', e.message);
+    }
+
+    // ── Status index ─────────────────────────────────────────
     await conn.query(`
       CREATE INDEX IF NOT EXISTS idx_leaderboard_status_time
         ON leaderboard (status, time_completed)
-    `).catch(() => {});  // older MySQL versions don't support IF NOT EXISTS on indexes
+    `).catch(() => {
+      // Older MySQL versions don't support IF NOT EXISTS on indexes — ignore
+    });
 
     console.log(`[DB] Database "${DB_NAME}" ready.`);
+
   } catch (err) {
     console.error('[DB] Bootstrap failed:', err.message);
     console.error('     Make sure XAMPP MySQL is running and credentials are correct.');
@@ -88,14 +117,12 @@ const pool = mysql.createPool({
   queueLimit:         0,
 });
 
-// Run bootstrap then make the pool available
 let _ready = null;
 function ensureReady() {
   if (!_ready) _ready = bootstrap();
   return _ready;
 }
 
-// Wrap pool so callers automatically wait for DB init
 const safePool = {
   async execute(...args) {
     await ensureReady();

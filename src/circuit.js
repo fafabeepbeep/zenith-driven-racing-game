@@ -3,14 +3,20 @@
 //   • Elevation system: segments have varying Y (hills/valleys via sin waves)
 //   • camera.y is driven by road elevation in camera.js (see update())
 //   • roadSpec accepts optional { elevation: true/false } per-section (future use)
+// frontend/js/circuit.js
+// CHANGE vs previous: this.texture render texture gets .setDepth(25) so the
+// player sprite drawn onto it always renders in front of all traffic images
+// (which occupy depths 1–19). Road graphics stay at depth 0.
 
 class Circuit
 {
     constructor(scene)
     {
         this.scene    = scene;
-        this.graphics = scene.add.graphics(0, 0);
-        this.texture  = scene.add.renderTexture(0, 0, SCREEN_W, SCREEN_H);
+        this.graphics = scene.add.graphics(0, 0);   // depth 0 — road quads
+
+        // ── DEPTH FIX: player render texture must be above all traffic (1–19) ──
+        this.texture  = scene.add.renderTexture(0, 0, SCREEN_W, SCREEN_H).setDepth(25);
 
         this.segments         = [];
         this.segmentLength    = 100;
@@ -21,15 +27,13 @@ class Circuit
         this.roadWidth        = 1000;
         this.roadLength       = null;
 
-        // Elevation config
-        this.elevationAmplitude = 180;   // max hill height in world units
-        this.elevationFreq1     = 0.028; // primary wave
-        this.elevationFreq2     = 0.071; // secondary harmonic
+        this.elevationAmplitude = 180;
+        this.elevationFreq1     = 0.028;
+        this.elevationFreq2     = 0.071;
 
         this.lastVisibleSegments = [];
     }
 
-    // ── Public: build road from spec or defaults ──────────────
     create(roadSpec)
     {
         this.segments = [];
@@ -39,7 +43,6 @@ class Circuit
         else
             this._createDefaultRoad();
 
-        // Start / finish rumble strips
         for (var n = 0; n < this.rumble_segments; n++)
         {
             this.segments[n].colour.road = 0xFFFFFF;
@@ -73,8 +76,7 @@ class Circuit
 
     createSection(nSegments)
     {
-        for (var i = 0; i < nSegments; i++)
-            this.createSegment();
+        for (var i = 0; i < nSegments; i++) this.createSegment();
     }
 
     createCurve(nSegments, curveValue)
@@ -86,7 +88,6 @@ class Circuit
         }
     }
 
-    // ── Elevation helper ──────────────────────────────────────
     _computeElevation(n)
     {
         var e1 = Math.sin(n * this.elevationFreq1) * this.elevationAmplitude;
@@ -96,24 +97,21 @@ class Circuit
 
     createSegment()
     {
-        const colours =
-        {
+        const colours = {
             LIGHT: { road: 0x888888, grass: 0x429352, rumble: 0xb8312e },
             DARK:  { road: 0x666666, grass: 0x397d46, rumble: 0xDDDDDD, lane: 0xFFFFFF }
         };
 
         var n   = this.segments.length;
-        var elv = this._computeElevation(n);   // ← new: elevation offset
+        var elv = this._computeElevation(n);
 
-        this.segments.push(
-        {
+        this.segments.push({
             index:     n,
             curve:     0,
-            elevation: elv,   // store for camera
+            elevation: elv,
             colour:    Math.floor(n / this.rumble_segments) % 2 ? colours.DARK : colours.LIGHT,
-            point:
-            {
-                world:  { x: 0, y: elv, z: n * this.segmentLength }, // ← y = elevation
+            point: {
+                world:  { x: 0, y: elv, z: n * this.segmentLength },
                 screen: { x: 0, y: 0, z: 0, w: 0 },
                 scale:  -1
             }
@@ -133,7 +131,7 @@ class Circuit
         var transY = point.world.y - cameraY;
         var transZ = point.world.z - cameraZ;
 
-        if (transZ <= 0) { point.scale = -1; return; }  // behind camera
+        if (transZ <= 0) { point.scale = -1; return; }
 
         point.scale = cameraDepth / transZ;
 
@@ -178,7 +176,7 @@ class Circuit
                 camera.distToPlane
             );
 
-            if (currSegment.point.scale < 0) continue;  // behind camera
+            if (currSegment.point.scale < 0) continue;
 
             var currBottomLine = currSegment.point.screen.y;
 
@@ -200,14 +198,14 @@ class Circuit
             }
         }
 
-        // ── Draw sprites to RenderTexture ─────────────────────
+        // ── Draw traffic via NEW scene-sprite renderer ────────
         this.texture.clear();
 
         if (this.scene.traffic)
             this.scene.traffic.render(this.lastVisibleSegments, this, camera);
 
+        // ── Draw player into render texture (depth 25) ────────
         var player = this.scene.player;
-        // Draw player centered at bottom-centre of screen
         var px = player.screen.x - player.screen.w / 2;
         var py = player.screen.y - player.screen.h;
         this.texture.draw(player.sprite, px, py);
@@ -220,19 +218,16 @@ class Circuit
 
         this.drawPolygon(x1 - w1, y1, x1 + w1, y1, x2 + w2, y2, x2 - w2, y2, colour.road);
 
-        var rw1 = w1 / 5;
-        var rw2 = w2 / 5;
+        var rw1 = w1 / 5, rw2 = w2 / 5;
         this.drawPolygon(x1 - w1 - rw1, y1, x1 - w1, y1, x2 - w2, y2, x2 - w2 - rw2, y2, colour.rumble);
         this.drawPolygon(x1 + w1 + rw1, y1, x1 + w1, y1, x2 + w2, y2, x2 + w2 + rw2, y2, colour.rumble);
 
         if (colour.lane)
         {
-            var lw1    = (w1 / 20) / 2;
-            var lw2    = (w2 / 20) / 2;
+            var lw1     = (w1 / 20) / 2, lw2 = (w2 / 20) / 2;
             var lane_w1 = (w1 * 2) / this.roadLanes;
             var lane_w2 = (w2 * 2) / this.roadLanes;
-            var lane_x1 = x1 - w1;
-            var lane_x2 = x2 - w2;
+            var lane_x1 = x1 - w1, lane_x2 = x2 - w2;
 
             for (var i = 1; i < this.roadLanes; i++)
             {

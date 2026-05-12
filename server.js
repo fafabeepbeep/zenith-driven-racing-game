@@ -4,10 +4,14 @@
 //    • Express REST API  (auth + leaderboard)   → port 3000
 //    • WebSocket relay   (Python → Game)        → port 8765
 //
-//  Install:
-//    npm install express mysql2 bcrypt jsonwebtoken cors ws dotenv
+//  LEADERBOARD POLICY (this revision):
+//    Plain INSERT — every play creates a new row. Same user can appear
+//    multiple times with their different attempt times.
 //
-//  Run gesture:   python gestureControl.py
+//  ROUTES:
+//    GET  /api/leaderboard       → top 5  (live panel on login screen)
+//    GET  /api/leaderboard/full  → top 50 (full leaderboard modal)
+//    POST /api/leaderboard/save  → INSERT new row
 // ─────────────────────────────────────────────────────────────
 
 require('dotenv').config();
@@ -25,21 +29,15 @@ const app         = express();
 const JWT_SECRET  = process.env.JWT_SECRET || 'change_me_in_production';
 const SALT_ROUNDS = 10;
 
-// ── Middleware ────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
-
-// ── FIX: Serve frontend static files from /src ───────────────
-// game.html, index.html, JS files and assets all live in ./src
 app.use(express.static(path.join(__dirname, 'src')));
 
-// ── Request logger (debug) ────────────────────────────────────
 app.use((req, _res, next) => {
   console.log(`[API] ${req.method} ${req.path}`);
   next();
 });
 
-// ── Auth helper ───────────────────────────────────────────────
 function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token  = header.replace('Bearer ', '').trim();
@@ -53,27 +51,17 @@ function requireAuth(req, res, next) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-//  HEALTH CHECK
-// ════════════════════════════════════════════════════════════
+// ── HEALTH + STATIC ROUTES ───────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-
-// ── FIX: Explicit HTML routes ─────────────────────────────────
-// Serve index.html for root and /index
-app.get('/',       (_req, res) => res.sendFile(path.join(__dirname, 'src', 'index.html')));
-app.get('/index',  (_req, res) => res.sendFile(path.join(__dirname, 'src', 'index.html')));
-
-// Serve game.html for /game route (previously caused 404)
-app.get('/game',   (_req, res) => res.sendFile(path.join(__dirname, 'src', 'game.html')));
+app.get('/',      (_req, res) => res.sendFile(path.join(__dirname, 'src', 'index.html')));
+app.get('/index', (_req, res) => res.sendFile(path.join(__dirname, 'src', 'index.html')));
+app.get('/game',  (_req, res) => res.sendFile(path.join(__dirname, 'src', 'game.html')));
 
 // ════════════════════════════════════════════════════════════
-//  AUTH ROUTES
+//  AUTH
 // ════════════════════════════════════════════════════════════
-
-// POST /api/register
 app.post('/api/register', async (req, res) => {
   const { username, password } = req.body || {};
-
   if (!username || !password)
     return res.status(400).json({ error: 'Username and password required' });
   if (username.length < 3 || username.length > 50)
@@ -87,7 +75,7 @@ app.post('/api/register', async (req, res) => {
       'INSERT INTO users (username, password_hash) VALUES (?, ?)',
       [username, hash]
     );
-    console.log(`[AUTH] Registered: ${username}`);
+    console.log('[AUTH] Registered:', username);
     res.json({ success: true, message: 'Account created. Please sign in.' });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY')
@@ -97,7 +85,6 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// POST /api/login
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password)
@@ -121,7 +108,7 @@ app.post('/api/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '8h' }
     );
-    console.log(`[AUTH] Login: ${username}`);
+    console.log('[AUTH] Login: user_id=', user.id, 'username=', username);
     res.json({ token, username: user.username });
   } catch (err) {
     console.error('[AUTH] Login error:', err);
@@ -130,22 +117,24 @@ app.post('/api/login', async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-//  LEADERBOARD ROUTES
+//  LEADERBOARD
 // ════════════════════════════════════════════════════════════
 
-// GET /api/leaderboard
+// GET /api/leaderboard  →  top 5 (live panel on login screen)
 app.get('/api/leaderboard', async (_req, res) => {
   try {
     const [rows] = await pool.execute(`
-      SELECT username, time_completed, levels_completed, status,
-             DATE_FORMAT(created_at, '%Y-%m-%d') AS date
+      SELECT id, username, time_completed, levels_completed, status,
+             DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS date
       FROM leaderboard
       ORDER BY
         CASE status WHEN 'Completed' THEN 0 ELSE 1 END,
         time_completed ASC,
-        levels_completed DESC
-      LIMIT 20
+        levels_completed DESC,
+        created_at DESC
+      LIMIT 5
     `);
+    console.log('[LB] Fetched top 5 — rows:', rows.length);
     res.json(rows);
   } catch (err) {
     console.error('[LB] Fetch error:', err);
@@ -153,7 +142,29 @@ app.get('/api/leaderboard', async (_req, res) => {
   }
 });
 
-// POST /api/leaderboard/save
+// GET /api/leaderboard/full  →  top 50 (full leaderboard modal)
+app.get('/api/leaderboard/full', async (_req, res) => {
+  try {
+    const [rows] = await pool.execute(`
+      SELECT id, username, time_completed, levels_completed, status,
+             DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS date
+      FROM leaderboard
+      ORDER BY
+        CASE status WHEN 'Completed' THEN 0 ELSE 1 END,
+        time_completed ASC,
+        levels_completed DESC,
+        created_at DESC
+      LIMIT 50
+    `);
+    console.log('[LB] Fetched top 50 — rows:', rows.length);
+    res.json(rows);
+  } catch (err) {
+    console.error('[LB] Fetch full error:', err);
+    res.status(500).json({ error: 'Could not fetch full leaderboard' });
+  }
+});
+
+// POST /api/leaderboard/save  →  always INSERT a new row
 app.post('/api/leaderboard/save', requireAuth, async (req, res) => {
   const { time_completed, levels_completed, status } = req.body || {};
   const { id: user_id, username } = req.user;
@@ -162,14 +173,25 @@ app.post('/api/leaderboard/save', requireAuth, async (req, res) => {
   if (!validStatus.includes(status))
     return res.status(400).json({ error: 'Invalid status value' });
 
+  console.log('[LB] Save request —',
+    'user_id:', user_id,
+    'username:', username,
+    'status:', status,
+    'levels_completed:', levels_completed,
+    'time_completed:', time_completed
+  );
+
   try {
-    await pool.execute(
-      `INSERT INTO leaderboard (user_id, username, time_completed, levels_completed, status)
+    const [result] = await pool.execute(
+      `INSERT INTO leaderboard
+         (user_id, username, time_completed, levels_completed, status)
        VALUES (?, ?, ?, ?, ?)`,
       [user_id, username, time_completed ?? null, levels_completed ?? 0, status]
     );
-    console.log(`[LB] Saved: ${username} — ${status}, ${levels_completed} levels`);
-    res.json({ success: true });
+
+    console.log('[LB] INSERTED — new row id:', result.insertId);
+    res.json({ success: true, action: 'INSERTED', insertId: result.insertId });
+
   } catch (err) {
     console.error('[LB] Save error:', err);
     res.status(500).json({ error: 'Could not save record' });
@@ -193,18 +215,16 @@ httpServer.listen(3000, () => {
 });
 
 // ════════════════════════════════════════════════════════════
-//  WEBSOCKET RELAY  (gestureControl.py → browser game)
+//  WEBSOCKET RELAY
 // ════════════════════════════════════════════════════════════
 const wss = new WebSocket.Server({ port: 8765 });
 
 wss.on('connection', (ws, req) => {
   const ip = req.socket.remoteAddress;
-  console.log(`[WS] Client connected from ${ip}`);
+  console.log('[WS] Client connected from', ip);
 
   ws.on('message', (message) => {
     const payload = message.toString();
-
-    // Debug — log gesture (throttled)
     try {
       const parsed = JSON.parse(payload);
       if (parsed.gesture && parsed.gesture !== 'NONE') {
@@ -212,11 +232,9 @@ wss.on('connection', (ws, req) => {
       }
     } catch {}
 
-    // Relay to all OTHER connected clients (Python → browser)
     wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
+      if (client !== ws && client.readyState === WebSocket.OPEN)
         client.send(payload);
-      }
     });
   });
 
@@ -226,5 +244,3 @@ wss.on('connection', (ws, req) => {
 
 console.log('[SERVER] WebSocket relay → ws://localhost:8765');
 console.log('[SERVER] Gesture script:  python gestureControl.py');
-console.log("JWT:", process.env.JWT_SECRET);
-console.log("DB:", process.env.DB_NAME);
