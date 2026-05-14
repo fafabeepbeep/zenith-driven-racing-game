@@ -1,0 +1,37 @@
+# render.yaml — Render Infrastructure-as-Code
+# Place this file in your project root and commit it.
+# When you create the Web Service in Render's UI, it auto-detects this file
+# and pre-fills the configuration. Less clicking, fewer mistakes.
+
+services:
+  - type: web
+    name: zenith-driven
+    env: node
+    plan: free                         # Free tier (sleeps after 15min inactivity)
+    region: oregon                      # Or singapore / frankfurt — pick closest to your users
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    autoDeploy: true                    # Auto-redeploy on every git push to main
+
+    envVars:
+      # ── Set these in the Render dashboard ───────────────────
+      # (left blank here so they're not committed to git)
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_SSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true             # Render auto-generates a strong random value
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
