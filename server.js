@@ -1,17 +1,18 @@
-// server.js
+// server.js — PRODUCTION VERSION (for Render / cloud hosting)
 // ─────────────────────────────────────────────────────────────
-//  Single process:
-//    • Express REST API  (auth + leaderboard)   → port 3000
-//    • WebSocket relay   (Python → Game)        → port 8765
+//  KEY CHANGES vs local server.js:
 //
-//  LEADERBOARD POLICY (this revision):
-//    Plain INSERT — every play creates a new row. Same user can appear
-//    multiple times with their different attempt times.
+//  1. WebSocket merged onto same HTTP server (one port, required for cloud)
+//     Local:   ws://localhost:8765
+//     Cloud:   wss://your-app.onrender.com  (same domain, secure)
 //
-//  ROUTES:
-//    GET  /api/leaderboard       → top 5  (live panel on login screen)
-//    GET  /api/leaderboard/full  → top 50 (full leaderboard modal)
-//    POST /api/leaderboard/save  → INSERT new row
+//  2. Port from environment ($PORT) — Render assigns this automatically
+//
+//  3. Trust proxy enabled — Render runs behind a reverse proxy
+//
+//  4. CORS configured for production domain
+//
+//  5. Static files served from src/  (unchanged)
 // ─────────────────────────────────────────────────────────────
 
 require('dotenv').config();
@@ -26,15 +27,26 @@ const path      = require('path');
 const pool      = require('./db');
 
 const app         = express();
+const PORT        = process.env.PORT || 3000;            // Render injects this
 const JWT_SECRET  = process.env.JWT_SECRET || 'change_me_in_production';
 const SALT_ROUNDS = 10;
 
-app.use(cors());
+// ── Trust proxy (required behind Render's load balancer) ─────
+app.set('trust proxy', 1);
+
+// ── Middleware ────────────────────────────────────────────────
+app.use(cors({
+  origin: '*',  // Tighten this to your domain in production if desired
+  credentials: false,
+}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'src')));
 
+// Lightweight request logger
 app.use((req, _res, next) => {
-  console.log(`[API] ${req.method} ${req.path}`);
+  if (!req.path.startsWith('/assets')) {
+    console.log(`[API] ${req.method} ${req.path}`);
+  }
   next();
 });
 
@@ -52,7 +64,7 @@ function requireAuth(req, res, next) {
 }
 
 // ── HEALTH + STATIC ROUTES ───────────────────────────────────
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, env: process.env.NODE_ENV || 'production' }));
 app.get('/',      (_req, res) => res.sendFile(path.join(__dirname, 'src', 'index.html')));
 app.get('/index', (_req, res) => res.sendFile(path.join(__dirname, 'src', 'index.html')));
 app.get('/game',  (_req, res) => res.sendFile(path.join(__dirname, 'src', 'game.html')));
@@ -108,7 +120,7 @@ app.post('/api/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '8h' }
     );
-    console.log('[AUTH] Login: user_id=', user.id, 'username=', username);
+    console.log('[AUTH] Login:', username);
     res.json({ token, username: user.username });
   } catch (err) {
     console.error('[AUTH] Login error:', err);
@@ -119,8 +131,6 @@ app.post('/api/login', async (req, res) => {
 // ════════════════════════════════════════════════════════════
 //  LEADERBOARD
 // ════════════════════════════════════════════════════════════
-
-// GET /api/leaderboard  →  top 5 (live panel on login screen)
 app.get('/api/leaderboard', async (_req, res) => {
   try {
     const [rows] = await pool.execute(`
@@ -129,12 +139,9 @@ app.get('/api/leaderboard', async (_req, res) => {
       FROM leaderboard
       ORDER BY
         CASE status WHEN 'Completed' THEN 0 ELSE 1 END,
-        time_completed ASC,
-        levels_completed DESC,
-        created_at DESC
+        time_completed ASC, levels_completed DESC, created_at DESC
       LIMIT 5
     `);
-    console.log('[LB] Fetched top 5 — rows:', rows.length);
     res.json(rows);
   } catch (err) {
     console.error('[LB] Fetch error:', err);
@@ -142,7 +149,6 @@ app.get('/api/leaderboard', async (_req, res) => {
   }
 });
 
-// GET /api/leaderboard/full  →  top 50 (full leaderboard modal)
 app.get('/api/leaderboard/full', async (_req, res) => {
   try {
     const [rows] = await pool.execute(`
@@ -151,12 +157,9 @@ app.get('/api/leaderboard/full', async (_req, res) => {
       FROM leaderboard
       ORDER BY
         CASE status WHEN 'Completed' THEN 0 ELSE 1 END,
-        time_completed ASC,
-        levels_completed DESC,
-        created_at DESC
+        time_completed ASC, levels_completed DESC, created_at DESC
       LIMIT 50
     `);
-    console.log('[LB] Fetched top 50 — rows:', rows.length);
     res.json(rows);
   } catch (err) {
     console.error('[LB] Fetch full error:', err);
@@ -164,7 +167,6 @@ app.get('/api/leaderboard/full', async (_req, res) => {
   }
 });
 
-// POST /api/leaderboard/save  →  always INSERT a new row
 app.post('/api/leaderboard/save', requireAuth, async (req, res) => {
   const { time_completed, levels_completed, status } = req.body || {};
   const { id: user_id, username } = req.user;
@@ -173,14 +175,6 @@ app.post('/api/leaderboard/save', requireAuth, async (req, res) => {
   if (!validStatus.includes(status))
     return res.status(400).json({ error: 'Invalid status value' });
 
-  console.log('[LB] Save request —',
-    'user_id:', user_id,
-    'username:', username,
-    'status:', status,
-    'levels_completed:', levels_completed,
-    'time_completed:', time_completed
-  );
-
   try {
     const [result] = await pool.execute(
       `INSERT INTO leaderboard
@@ -188,10 +182,8 @@ app.post('/api/leaderboard/save', requireAuth, async (req, res) => {
        VALUES (?, ?, ?, ?, ?)`,
       [user_id, username, time_completed ?? null, levels_completed ?? 0, status]
     );
-
-    console.log('[LB] INSERTED — new row id:', result.insertId);
-    res.json({ success: true, action: 'INSERTED', insertId: result.insertId });
-
+    console.log('[LB] INSERTED — id:', result.insertId);
+    res.json({ success: true, insertId: result.insertId });
   } catch (err) {
     console.error('[LB] Save error:', err);
     res.status(500).json({ error: 'Could not save record' });
@@ -205,22 +197,16 @@ app.use((err, _req, res, _next) => {
 });
 
 // ════════════════════════════════════════════════════════════
-//  HTTP SERVER
+//  HTTP + WEBSOCKET — SHARED PORT (cloud-friendly)
 // ════════════════════════════════════════════════════════════
 const httpServer = http.createServer(app);
-httpServer.listen(3000, () => {
-  console.log('[SERVER] API      → http://localhost:3000');
-  console.log('[SERVER] Game     → http://localhost:3000/game');
-  console.log('[SERVER] Login    → http://localhost:3000/');
-});
 
-// ════════════════════════════════════════════════════════════
-//  WEBSOCKET RELAY
-// ════════════════════════════════════════════════════════════
-const wss = new WebSocket.Server({ port: 8765 });
+// WebSocket on the SAME server, not a separate port.
+// Path `/gesture` lets Render route correctly behind HTTPS proxy.
+const wss = new WebSocket.Server({ server: httpServer, path: '/gesture' });
 
 wss.on('connection', (ws, req) => {
-  const ip = req.socket.remoteAddress;
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   console.log('[WS] Client connected from', ip);
 
   ws.on('message', (message) => {
@@ -242,5 +228,11 @@ wss.on('connection', (ws, req) => {
   ws.on('error', (err) => console.warn(`[WS] Error (${ip}):`, err.message));
 });
 
-console.log('[SERVER] WebSocket relay → ws://localhost:8765');
-console.log('[SERVER] Gesture script:  python gestureControl.py');
+httpServer.listen(PORT, () => {
+  console.log('═══════════════════════════════════════════════════');
+  console.log(`  ZENITH DRIVEN — Production Server`);
+  console.log(`  HTTP + WS  → port ${PORT}`);
+  console.log(`  WS path    → /gesture`);
+  console.log(`  Env        → ${process.env.NODE_ENV || 'production'}`);
+  console.log('═══════════════════════════════════════════════════');
+});
