@@ -26,7 +26,7 @@
 (function () {
     'use strict';
   
-    const MODEL_URL  = '${location.origin}/models/gestureModel.task';   // Served by Express from project root
+    const MODEL_URL  = '/models/gestureModel.task';   // Served by Express from project root
     const WASM_BASE  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
     const TASKS_URL  = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
   
