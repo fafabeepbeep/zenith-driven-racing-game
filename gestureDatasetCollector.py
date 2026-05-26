@@ -53,7 +53,7 @@ import time
 
 # ── Config ──────────────────────────────────────────────────────────────────
 DATASET_DIR  = "dataset"
-TARGET_COUNT = 150            # default target per class
+TARGET_COUNT = 200            # default target per class
 CAMERA_INDEX = 0
 CAPTURE_FPS  = 8
 MIN_INTERVAL = 1.0 / CAPTURE_FPS

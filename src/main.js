@@ -1,27 +1,16 @@
-// src/main.js — ZENITH DRIVEN (Polished Build)
+// src/main.js — ZENITH DRIVEN (Patched Build)
 // ═══════════════════════════════════════════════════════════════════════════
 //  WHAT CHANGED IN THIS REVISION
 //  ─────────────────────────────────────────────────────────────────────────
-//  [UPDATED] Gesture mapping is now LIVE — every frame the player's input
-//            flags reflect the CURRENT gesture only, no carry-over. Combined
-//            with steerVelocity in player.js, gestures stop instantly when
-//            the hand changes pose.
-//
-//  [ADDED]   Bump detection. Each frame checks circuit.isOnBump(player.z);
-//            entering a bump enables turbulence (random wobble) and shows
-//            a "HOLD BALANCE" prompt. Holding BALANCE clears the wobble.
-//            Failing to balance for 5 seconds → fail.
-//
-//  [ADDED]   Redemption flow. Off-track and balance fails now route through
-//            levelManager.useRedemption() — first fail per level = restart
-//            current level; second fail = game over.
-//
-//  [UPDATED] Collision feedback. Camera shake (2 seconds), red overlay
-//            stays brighter longer, control lock visible to the player.
-//
-//  [UPDATED] Off-track countdown reduced 5→4 seconds (faster feedback) but
-//            warning appears immediately when wheels touch grass instead
-//            of after 2 seconds of being off.
+//  [FIXED] Off-road countdown stretched 4s → 15s (per spec).
+//  [FIXED] Redemption no longer fights off-road countdown — _handleFailure
+//          sets _gameState to STATE_REDEMPTION immediately so the play-loop
+//          off-track check is skipped during the 2.2s redemption modal.
+//  [FIXED] Bumps now hold turbulence for 4 seconds AFTER leaving the bump
+//          zone, giving the player real time to use BALANCE gesture.
+//  [FIXED] HUD recolored to day theme (white surface, orange accent).
+//  [FIXED] Restart after redemption places player at lateral CENTER and
+//          z=0 (via player.restart()), so they don't reappear off-track.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SCREEN_W  = 1920;
@@ -29,11 +18,12 @@ const SCREEN_H  = 1080;
 const SCREEN_CX = SCREEN_W / 2;
 const SCREEN_CY = SCREEN_H / 2;
 
-const STATE_COUNTDOWN = 0;
-const STATE_PLAY      = 3;
-const STATE_GAMEOVER  = 4;
-const STATE_COMPLETE  = 5;
-const STATE_PAUSED    = 6;
+const STATE_COUNTDOWN  = 0;
+const STATE_PLAY       = 3;
+const STATE_GAMEOVER   = 4;
+const STATE_COMPLETE   = 5;
+const STATE_PAUSED     = 6;
+const STATE_REDEMPTION = 7;            // [ADDED] modal-display state; game logic skipped
 
 const PLAYER = 0;
 
@@ -45,26 +35,20 @@ const API_BASE = (location.hostname === 'localhost' || location.hostname === '12
   ? 'http://localhost:3000/api'
   : `${location.protocol}//${location.host}/api`;
 
-// ─────────────────────────────────────────────────────────────────────────
-//  LEADERBOARD GUARD — prevent double-save per run
-// ─────────────────────────────────────────────────────────────────────────
 var _savedRecordThisRun = false;
 
 async function saveRecord(timeSec, levelsCompleted, status) {
   if (_savedRecordThisRun) return;
   _savedRecordThisRun = true;
-
   const token = sessionStorage.getItem('token');
   if (!token) return;
-
   try {
     const res = await fetch(`${API_BASE}/leaderboard/save`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
       body: JSON.stringify({ time_completed: timeSec, levels_completed: levelsCompleted, status })
     });
-    const data = await res.json().catch(() => ({}));
-    console.log('[LB] Saved:', data);
+    await res.json().catch(() => ({}));
   } catch (e) {
     _savedRecordThisRun = false;
     console.warn('[LB] Save failed:', e.message);
@@ -78,13 +62,8 @@ function formatTime(secs) {
   return `${m}:${s}`;
 }
 
-function escHtml(str) {
-  return String(str).replace(/[&<>"']/g, c =>
-    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-
 // ══════════════════════════════════════════════════════════════
-//  StartScene  (unchanged — see your existing file)
+//  StartScene
 // ══════════════════════════════════════════════════════════════
 class StartScene extends Phaser.Scene {
   constructor() { super({ key: 'SceneStart' }); }
@@ -93,7 +72,7 @@ class StartScene extends Phaser.Scene {
     const username = sessionStorage.getItem('username') || 'DRIVER';
 
     var bg = this.add.graphics();
-    bg.fillGradientStyle(0xc8e0f5, 0xc8e0f5, 0xfaf0d8, 0xfaf0d8, 1);  // [UPDATED] day sky
+    bg.fillGradientStyle(0xc8e0f5, 0xc8e0f5, 0xfaf0d8, 0xfaf0d8, 1);
     bg.fillRect(0, 0, SCREEN_W, SCREEN_H);
 
     this.add.text(SCREEN_CX, 220, 'ZENITH\nDRIVEN', {
@@ -116,6 +95,8 @@ class StartScene extends Phaser.Scene {
       fontFamily: "'Press Start 2P',monospace",
       fontSize: '54px', fill: '#d4642a', stroke: '#ffffff', strokeThickness: 4
     }).setOrigin(0.5);
+    this._startText.setInteractive({ useHandCursor: true });
+    this._startText.on('pointerdown', () => this._startGame());
 
     this._flickerOn = true;
     this.time.addEvent({ delay: 520, loop: true, callback: () => {
@@ -123,11 +104,10 @@ class StartScene extends Phaser.Scene {
       this._startText.setAlpha(this._flickerOn ? 1 : 0.3);
     }});
 
-    this.add.text(SCREEN_CX, 770, 'Point your index finger toward the camera to start', {
-      fontFamily: 'monospace', fontSize: '26px', fill: '#506680'
+    this.add.text(SCREEN_CX, 770, 'Press SPACE, click START GAME, or show 👆 START gesture', {
+      fontFamily: 'monospace', fontSize: '24px', fill: '#506680'
     }).setOrigin(0.5);
 
-    // Gesture legend
     var legends = [
       ['✋ BRAKE',   'Open palm toward cam'],
       ['👆 START',   'Index finger forward'],
@@ -135,7 +115,7 @@ class StartScene extends Phaser.Scene {
       ['👐 FORWARD', 'Palm facing down'],
       ['⬅ LEFT',    'Fingers pointing left'],
       ['➡ RIGHT',   'Fingers pointing right'],
-      ['🖐 BALANCE', 'Hold steady on bumps'],     // [ADDED]
+      ['🖐 BALANCE', 'Hold steady on bumps'],
     ];
     var legX = SCREEN_CX - 340, legY = 860;
     legends.forEach(function(pair, i) {
@@ -147,7 +127,7 @@ class StartScene extends Phaser.Scene {
 
     this._wsStatusText = this.add.text(20, SCREEN_H - 40, 'WS: Connecting…', {
       fontFamily:'monospace', fontSize:'18px', fill:'#406080',
-      backgroundColor:'#ffffffcc', padding:{x:8, y:4}
+      backgroundColor:'#ffffffcc', padding:{x:10, y:5}
     });
 
     this._connectWS();
@@ -157,17 +137,15 @@ class StartScene extends Phaser.Scene {
 
   _connectWS() {
     try {
-      // Use wss:// when page is served over https, ws:// otherwise
-// Connect to /gesture path on same host (production), or :8765 (local dev)
       const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
       const wsUrl   = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-        ? 'ws://localhost:8765'
+        ? 'ws://localhost:3000/gesture'
         : `${wsProto}://${location.host}/gesture`;
       sharedSocket = new WebSocket(wsUrl);
 
       sharedSocket.onopen = () => {
         sharedWsConnected = true;
-        this._wsStatusText && this._wsStatusText.setText('WS: Connected ✓').setStyle({ fill:'#3a9d40' });
+        this._wsStatusText?.setText('WS: ✓ Connected').setStyle({ fill:'#3a9d40' });
       };
       sharedSocket.onmessage = (event) => {
         try {
@@ -180,11 +158,11 @@ class StartScene extends Phaser.Scene {
       };
       sharedSocket.onerror = () => {
         sharedWsConnected = false;
-        this._wsStatusText && this._wsStatusText.setText('WS: Error').setStyle({ fill:'#d44' });
+        this._wsStatusText?.setText('WS: Error').setStyle({ fill:'#c83a3a' });
       };
       sharedSocket.onclose = () => {
         sharedWsConnected = false;
-        this._wsStatusText && this._wsStatusText.setText('WS: Offline (keyboard only)').setStyle({ fill:'#d4642a' });
+        this._wsStatusText?.setText('WS: Offline (keyboard only)').setStyle({ fill:'#d4642a' });
       };
     } catch (e) { console.warn('WebSocket init failed:', e); }
   }
@@ -210,7 +188,7 @@ class MainScene extends Phaser.Scene {
     this.load.image('imageTraffic1', 'assets/img_bluetruck.png');
     this.load.image('imageTraffic2', 'assets/img_pinkcar.png');
     this.load.image('imageTraffic3', 'assets/img_greencar.png');
-    this.load.image('imageTrees',    'assets/img_trees.png');    // [ADDED]
+    this.load.image('imageTrees',    'assets/img_trees.png');
   }
 
   create() {
@@ -254,74 +232,88 @@ class MainScene extends Phaser.Scene {
     this.elapsedSec        = 0;
     this.timerRunning      = false;
     this._gameState        = STATE_COUNTDOWN;
+
+    // [FIXED] 15-second off-road limit (was 4)
+    this.OFFTRACK_LIMIT    = 15;
+    this.offTrackCountdown = this.OFFTRACK_LIMIT;
     this.offTrackTime      = 0;
     this.offTrackWarned    = false;
-    this.offTrackCountdown = 4;             // [UPDATED] was 5
     this.offTrackTimer     = null;
 
-    // [ADDED] Bump / balance state
+    // Bump / balance state
     this._onBump            = false;
-    this._balanceTime       = 0;     // how long player has been on a bump
-    this._balanceLimit      = 5;     // seconds before fail
+    this._turbulenceCarry   = 0;          // [ADDED] turbulence persists this many sec after leaving bump
+    this._balanceTime       = 0;
+    this._balanceLimit      = 5;
     this._balanceWarned     = false;
     this._balanceTimer      = null;
     this._balanceCountdown  = 5;
 
-    // [ADDED] Camera shake state
+    // Camera shake
     this._shakeIntensity = 0;
     this._shakeTime      = 0;
 
-    var hs = (sz, col) => ({
-      fontFamily: 'monospace', fontSize: sz, fill: col || '#ffffff',
-      backgroundColor: '#00000088', padding: { x: 8, y: 4 }
+    // ── [FIXED] HUD style — day theme (white surface, dark text, orange accent)
+    var hudStyle = (sz, fillCol) => ({
+      fontFamily: 'monospace',
+      fontSize:   sz,
+      fill:       fillCol || '#2a3340',
+      backgroundColor: '#ffffffe6',
+      padding: { x: 12, y: 6 }
     });
 
-    this.gestureText  = this.add.text(20, 20, 'Gesture: NONE', hs('28px')).setDepth(50);
-    this.wsStatusText = this.add.text(20, 65,
+    this.gestureText = this.add.text(20, 20, 'Gesture: NONE',
+      hudStyle('28px', '#d4642a')).setDepth(50);
+
+    this.wsStatusText = this.add.text(20, 75,
       sharedWsConnected ? 'WS: ✓ Connected' : 'WS: Connecting…',
-      hs('20px', sharedWsConnected ? '#00ff00' : '#ffff00')
+      hudStyle('20px', sharedWsConnected ? '#3a9d40' : '#d4642a')
     ).setDepth(50);
 
     this.timerText = this.add.text(SCREEN_CX, 20, '00:00.0', {
-      fontSize: '36px', fill: '#e8ff00', fontFamily: 'monospace',
-      backgroundColor: '#00000088', padding: { x: 12, y: 6 }
+      fontSize: '38px', fill: '#ffffff', fontFamily: 'monospace',
+      backgroundColor: '#d4642a', padding: { x: 18, y: 8 }
     }).setOrigin(0.5, 0).setDepth(50);
 
-    this.levelText = this.add.text(SCREEN_CX, 72, '', hs('22px', '#aaffaa'))
-      .setOrigin(0.5, 0).setDepth(50);
+    this.levelText = this.add.text(SCREEN_CX, 82, '',
+      hudStyle('22px', '#1a3d6e')).setOrigin(0.5, 0).setDepth(50);
     this.levelManager.levelText = this.levelText;
 
     this.add.text(SCREEN_W - 20, 20, '👤 ' + username, {
-      fontFamily: 'monospace', fontSize: '22px', fill: '#ffffff',
-      backgroundColor: '#00000088', padding: { x: 10, y: 5 }
+      fontFamily: 'monospace', fontSize: '22px', fill: '#2a3340',
+      backgroundColor: '#ffffffe6', padding: { x: 14, y: 7 }
     }).setOrigin(1, 0).setDepth(50);
 
-    this.speedText = this.add.text(20, SCREEN_H - 60,  'Speed: 0 km/h', hs('28px')).setDepth(50);
-    this.diffText  = this.add.text(20, SCREEN_H - 110, 'Traffic Lvl: 1', hs('24px', '#aaffaa')).setDepth(50);
+    this.speedText = this.add.text(20, SCREEN_H - 60, 'Speed: 0 km/h',
+      hudStyle('28px', '#2a3340')).setDepth(50);
+    this.diffText  = this.add.text(20, SCREEN_H - 110, 'Traffic Lvl: 1',
+      hudStyle('22px', '#3a9d40')).setDepth(50);
 
-    this.offTrackText = this.add.text(SCREEN_CX, SCREEN_CY - 180, '', {
-      fontSize: '64px', fill: '#ff8800', fontFamily: 'monospace',
-      stroke: '#000', strokeThickness: 6
+    // Center alerts (bright colored for visibility)
+    this.offTrackText = this.add.text(SCREEN_CX, SCREEN_CY - 200, '', {
+      fontSize: '64px', fill: '#ffffff', fontFamily: 'monospace',
+      stroke: '#c83a3a', strokeThickness: 8,
+      backgroundColor: '#c83a3a', padding: { x: 28, y: 14 }
     }).setOrigin(0.5).setDepth(90).setVisible(false);
 
-    // [ADDED] Balance prompt
-    this.balanceText = this.add.text(SCREEN_CX, SCREEN_CY - 180, '', {
-      fontSize: '60px', fill: '#ffaa00', fontFamily: 'monospace',
-      stroke: '#000', strokeThickness: 6
+    this.balanceText = this.add.text(SCREEN_CX, SCREEN_CY - 200, '', {
+      fontSize: '60px', fill: '#ffffff', fontFamily: 'monospace',
+      stroke: '#d4642a', strokeThickness: 8,
+      backgroundColor: '#d4642a', padding: { x: 28, y: 14 }
     }).setOrigin(0.5).setDepth(90).setVisible(false);
 
     this.countdownText = this.add.text(SCREEN_CX, SCREEN_CY - 80, '', {
-      fontSize: '220px', fill: '#e8ff00', fontFamily: 'monospace',
-      stroke: '#000', strokeThickness: 12
+      fontSize: '220px', fill: '#d4642a', fontFamily: 'monospace',
+      stroke: '#ffffff', strokeThickness: 12
     }).setOrigin(0.5).setDepth(200).setVisible(false);
     this.countdownLabel = this.add.text(SCREEN_CX, SCREEN_CY + 160, '', {
       fontFamily: "'Bebas Neue',sans-serif", fontSize: '52px',
-      fill: '#ffffff', stroke: '#000', strokeThickness: 4
+      fill: '#1a3d6e', stroke: '#ffffff', strokeThickness: 4
     }).setOrigin(0.5).setDepth(200).setVisible(false);
 
     this.collisionOverlay = this.add.rectangle(SCREEN_CX, SCREEN_CY, SCREEN_W, SCREEN_H, 0xff0000, 0).setDepth(100);
     this.collisionText = this.add.text(SCREEN_CX, SCREEN_CY - 60, '⚠ COLLISION!', {
-      fontSize: '96px', fill: '#ff2222', stroke: '#fff', strokeThickness: 8
+      fontSize: '96px', fill: '#c83a3a', stroke: '#ffffff', strokeThickness: 8
     }).setOrigin(0.5).setDepth(101).setVisible(false);
 
     this._injectModalCSS();
@@ -333,7 +325,6 @@ class MainScene extends Phaser.Scene {
     this.keyUp    = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
     this.keyDown  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
     this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    // [ADDED] B key for balance (keyboard fallback)
     this.keyB     = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.B);
 
     this.input.keyboard.on('keydown-P', () => {
@@ -350,16 +341,13 @@ class MainScene extends Phaser.Scene {
     this._startCountdown();
   }
 
-  // ─────────────────────────────────────────────────────────
-  //  PAUSE
-  // ─────────────────────────────────────────────────────────
   _createPauseModal(username) {
     this._modalPause = this._makeModal(
       '⏸  PAUSED',
       username.toUpperCase() + ' — your race is on hold',
       [
-        { label: '▶  RESUME  [ P ]', cls: 'btn-primary', cb: () => this._doResume() },
-        { label: '✕  QUIT    [ Q ]', cls: 'btn-danger',  cb: () => this._doPauseQuit() },
+        { label: '▶  RESUME  [ P ]', cls: 'btn-primary',   cb: () => this._doResume() },
+        { label: '✕  QUIT    [ Q ]', cls: 'btn-secondary', cb: () => this._doPauseQuit() },
       ]
     );
     document.body.appendChild(this._modalPause);
@@ -396,7 +384,7 @@ class MainScene extends Phaser.Scene {
   }
 
   _startCountdown() {
-    var steps = ['3','2','1','GO!'], colors = ['#ff3c3c','#ff8800','#ffff00','#00ff88'], idx = 0;
+    var steps = ['3','2','1','GO!'], colors = ['#c83a3a','#d4642a','#d4a52a','#3a9d40'], idx = 0;
     this._gameState = STATE_COUNTDOWN;
     this.player.speed = 0;
     this.player.steerVelocity = 0;
@@ -424,10 +412,10 @@ class MainScene extends Phaser.Scene {
     try {
       const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
       const wsUrl   = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
-        ? 'ws://localhost:8765'
+        ? 'ws://localhost:3000/gesture'
         : `${wsProto}://${location.host}/gesture`;
       sharedSocket = new WebSocket(wsUrl);
-      
+
       sharedSocket.onopen = () => {
         this.wsConnected = sharedWsConnected = true;
         sharedSocket.onmessage = (event) => {
@@ -450,24 +438,25 @@ class MainScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────
-  //  OFF-TRACK + BALANCE FAIL — both route through redemption
+  //  OFF-TRACK
   // ─────────────────────────────────────────────────────────
   _isOffTrack() { return Math.abs(this.player.x) > 1.0; }
 
   _hideOffTrackUI() {
     this.offTrackText.setVisible(false);
     if (this.offTrackTimer) { this.offTrackTimer.remove(false); this.offTrackTimer = null; }
-    this.offTrackCountdown = 4;
+    this.offTrackCountdown = this.OFFTRACK_LIMIT;
     this.offTrackWarned    = false;
   }
 
+  // [FIXED] 15-second countdown
   _startOffTrackCountdown() {
     if (this.offTrackWarned) return;
     this.offTrackWarned    = true;
-    this.offTrackCountdown = 4;
-    this.offTrackText.setText('⚠ RETURN TO ROAD!  4').setVisible(true);
+    this.offTrackCountdown = this.OFFTRACK_LIMIT;
+    this.offTrackText.setText('⚠ RETURN TO ROAD!  ' + this.OFFTRACK_LIMIT).setVisible(true);
     this.offTrackTimer = this.time.addEvent({
-      delay: 1000, repeat: 3,
+      delay: 1000, repeat: this.OFFTRACK_LIMIT - 1,
       callback: () => {
         this.offTrackCountdown--;
         this.offTrackText.setText('⚠ RETURN TO ROAD!  ' + this.offTrackCountdown);
@@ -476,7 +465,6 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  // [ADDED] Balance fail path
   _hideBalanceUI() {
     this.balanceText.setVisible(false);
     if (this._balanceTimer) { this._balanceTimer.remove(false); this._balanceTimer = null; }
@@ -500,23 +488,35 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  // [ADDED] Unified failure handler — checks redemption state
+  // ─────────────────────────────────────────────────────────
+  //  FAILURE HANDLER
+  //  [FIXED] Sets _gameState to STATE_REDEMPTION immediately so the
+  //          play-loop's off-track check stops firing during the modal.
+  // ─────────────────────────────────────────────────────────
   _handleFailure(reason) {
+    if (this._gameState === STATE_REDEMPTION || this._gameState === STATE_GAMEOVER) return;
+
     console.log('[Game] Failure:', reason);
     this._hideOffTrackUI();
     this._hideBalanceUI();
     this.timerRunning = false;
+    this.player.controlLocked = true;
+    this.player.speed = 0;
+    this.player.steerVelocity = 0;
+    this.player.turbulent = false;
+    this._onBump = false;
+    this._turbulenceCarry = 0;
 
     if (this.levelManager.useRedemption()) {
-      // ── Redemption granted — show retry overlay, restart level ──
+      this._gameState = STATE_REDEMPTION;
       this._showRedemptionToast(reason);
       this.time.delayedCall(2200, () => {
         this.levelManager.restartCurrentLevel();
+        this._hideOffTrackUI();
+        this._hideBalanceUI();
         this._startCountdown();
       });
-    }
-     else {
-      // ── No redemption left — game over ──
+    } else {
       this._gameState = STATE_GAMEOVER;
       saveRecord(Math.round(this.elapsedSec * 10) / 10,
                  this.levelManager.currentLevel, 'Game Unfinished');
@@ -533,33 +533,27 @@ class MainScene extends Phaser.Scene {
     this.time.delayedCall(2000, () => this._modalRedemption.classList.remove('show'));
   }
 
-  // ─────────────────────────────────────────────────────────
-  //  COLLISION FEEDBACK — overlay + shake + control lock
-  // ─────────────────────────────────────────────────────────
   flashCollision() {
-    // [UPDATED] Stronger overlay, longer fade
     this.collisionOverlay.setAlpha(0.6);
     this.tweens.add({ targets: this.collisionOverlay, alpha: 0, duration: 1800, ease: 'Power2' });
-
     this.collisionText.setVisible(true).setAlpha(1).setScale(1.3);
     this.tweens.add({ targets: this.collisionText, scaleX: 1, scaleY: 1, duration: 250 });
     this.time.delayedCall(1800, () => {
       this.tweens.add({ targets: this.collisionText, alpha: 0, duration: 400,
         onComplete: () => this.collisionText.setVisible(false) });
     });
-
-    // [ADDED] Camera shake — 1.5 seconds, decreasing intensity
     this._shakeIntensity = 20;
     this._shakeTime      = 1.5;
   }
 
   // ─────────────────────────────────────────────────────────
-  //  UPDATE
+  //  UPDATE LOOP
   // ─────────────────────────────────────────────────────────
   update(_time, delta) {
     switch (this._gameState) {
 
       case STATE_COUNTDOWN:
+      case STATE_REDEMPTION:                // [ADDED] just render scene, no logic
         this.camera.update();
         this.circuit.render3D();
         break;
@@ -569,27 +563,19 @@ class MainScene extends Phaser.Scene {
         if (this.timerRunning) this.elapsedSec += dt;
 
         var inCooldown = this.traffic.collisionCooldown > 0;
-
-        // ── [FIXED] LIVE gesture-to-input mapping ──────────────
-        // Each frame, set input flags from the CURRENT gesture only.
-        // Combined with steerVelocity decay in player.js, this gives
-        // direct, immediate control — no carry-over, no ghost-drift.
         var balanceHeld = false;
 
         if (this.wsConnected) {
           var g = this.currentGesture;
           balanceHeld = (g === 'BALANCE');
-
           this.player.moveLeft   = !inCooldown && g === 'LEFT';
           this.player.moveRight  = !inCooldown && g === 'RIGHT';
           this.player.accelerate = !inCooldown && g === 'FORWARD';
           this.player.brake      = g === 'BRAKE';
           this.player.reverse    = !inCooldown && g === 'REVERSE';
-
           if (g === 'BALANCE' || g === 'NONE' || g === '') {
             this.player.moveLeft = this.player.moveRight = false;
             this.player.accelerate = this.player.brake = this.player.reverse = false;
-            // BALANCE = continue coasting forward, NONE = friction coast
           }
         } else {
           this.player.moveLeft   = !inCooldown && this.keyLeft.isDown;
@@ -599,42 +585,58 @@ class MainScene extends Phaser.Scene {
           this.player.reverse    = !inCooldown && this.keyDown.isDown;
           balanceHeld            = this.keyB.isDown;
         }
-
         this.player.balanceActive = balanceHeld;
 
-        // ── [ADDED] Bump detection ─────────────────────────────
+        // ── [FIXED] BUMP DETECTION with carry-over ─────────────
+        // Without carry, the player crosses the bump in <0.5s at top speed,
+        // turbulent flips true→false too fast for the balance warning to
+        // actually trigger. Carry keeps turbulence alive for 4 seconds AFTER
+        // leaving the bump zone, giving real time to use BALANCE.
         var onBumpNow = this.circuit.isOnBump(this.player.z);
-        if (onBumpNow && !this._onBump) {
-          // Just entered a bump zone
-          this._onBump = true;
+        if (onBumpNow) {
+          if (!this._onBump) {
+            this._onBump = true;
+            console.log('[Bump] Entered bump zone');
+          }
           this.player.turbulent = true;
-        }
-        if (!onBumpNow && this._onBump) {
-          // Left the bump zone safely
+          this._turbulenceCarry = 4.0;
+        } else if (this._onBump) {
           this._onBump = false;
-          this.player.turbulent = false;
-          this._hideBalanceUI();
         }
 
-        // Track time turbulent without balance held
+        if (this._turbulenceCarry > 0) {
+          this.player.turbulent = true;
+          if (!balanceHeld) {
+            this._turbulenceCarry -= dt * 0.5;     // slow decay when not balancing
+          } else {
+            this._turbulenceCarry -= dt * 1.8;     // fast decay when balancing
+          }
+          if (this._turbulenceCarry <= 0) {
+            this._turbulenceCarry = 0;
+            this.player.turbulent = false;
+            this._hideBalanceUI();
+          }
+        }
+
+        // Balance-fail timer
         if (this.player.turbulent) {
           if (!balanceHeld) {
             this._balanceTime += dt;
-            if (this._balanceTime >= 1.0 && !this._balanceWarned) {
+            if (this._balanceTime >= 0.5 && !this._balanceWarned) {
               this._startBalanceCountdown();
             }
           } else {
-            // Balance held — reset timer, decay turbulence faster
-            this._balanceTime = Math.max(0, this._balanceTime - dt * 1.5);
-            if (this._balanceTime < 0.2) this._hideBalanceUI();
+            this._balanceTime = Math.max(0, this._balanceTime - dt * 2);
+            if (this._balanceTime < 0.2 && this._balanceWarned) this._hideBalanceUI();
           }
+        } else {
+          this._balanceTime = 0;
         }
 
         this.player.update(dt);
         this.camera.update();
         this.traffic.update(dt);
 
-        // [ADDED] Camera shake — offset camera.x by random amount
         if (this._shakeTime > 0) {
           this._shakeTime -= dt;
           var shakeAmount = this._shakeIntensity * (this._shakeTime / 1.5);
@@ -643,12 +645,10 @@ class MainScene extends Phaser.Scene {
 
         this.circuit.render3D();
 
-        // ── Off-track check ───────────────────────────────────
         if (this._isOffTrack()) {
           var maxOT = this.player.maxSpeed * 0.30;
           if (this.player.speed > maxOT) this.player.speed = maxOT;
           this.offTrackTime += dt;
-          // [UPDATED] Warn immediately (no 2-second grace)
           if (!this.offTrackWarned) this._startOffTrackCountdown();
         } else {
           if (this.offTrackWarned) this._hideOffTrackUI();
@@ -680,6 +680,7 @@ class MainScene extends Phaser.Scene {
                               + '  |  Cars: ' + this.traffic.vehicles.length);
         this.gestureText.setText('Gesture: ' + this.currentGesture);
         this.wsStatusText.setText(this.wsConnected ? 'WS: ✓ Connected' : 'WS: Offline (keyboard)');
+        this.wsStatusText.setStyle({ fill: this.wsConnected ? '#3a9d40' : '#d4642a' });
 
         var mins = Math.floor(this.elapsedSec / 60).toString().padStart(2, '0');
         var secs = (this.elapsedSec % 60).toFixed(1).padStart(4, '0');
@@ -687,10 +688,10 @@ class MainScene extends Phaser.Scene {
 
         var warn = this.traffic.getCollisionWarning();
         this.speedText.setStyle({
-          fill: warn > 0.6 ? '#ff4444' :
-                warn > 0.3 ? '#ffaa00' :
-                (this._isOffTrack() ? '#ff8800' :
-                (this.player.turbulent ? '#ffcc00' : '#ffffff'))
+          fill: warn > 0.6 ? '#c83a3a' :
+                warn > 0.3 ? '#d4642a' :
+                (this._isOffTrack() ? '#c83a3a' :
+                (this.player.turbulent ? '#d4a52a' : '#2a3340'))
         });
         break;
       }
@@ -706,7 +707,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // ─────────────────────────────────────────────────────────
-  //  WIN SCREEN (preserved — minor cleanups)
+  //  WIN SCREEN (day theme)
   // ─────────────────────────────────────────────────────────
   _showWinScreen(finalTimeSec) {
     const username = sessionStorage.getItem('username') || 'DRIVER';
@@ -714,21 +715,26 @@ class MainScene extends Phaser.Scene {
     overlay.id = 'win-overlay';
     overlay.innerHTML = `
       <style>
-        #win-overlay { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,0.92);
+        #win-overlay { position: fixed; inset: 0; z-index: 10000;
+          background: linear-gradient(180deg, #c8e0f5 0%, #faf0d8 100%);
           display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-          padding: 40px 20px; overflow-y: auto; font-family: 'Bebas Neue',sans-serif; }
-        .win-title { font-size: 72px; color: #e8ff00; letter-spacing: 3px; }
-        .win-time { font-size: 40px; color: #fff; margin-top: 10px; }
-        .win-btn-row { display: flex; gap: 16px; margin-top: 32px; }
-        .win-btn { font-family: 'Bebas Neue',sans-serif; font-size: 22px; letter-spacing: 2px;
-          padding: 14px 40px; border: none; border-radius: 4px; cursor: pointer; }
-        .win-btn-primary { background: #e8ff00; color: #000; }
-        .win-btn-secondary { background: #1e1e2e; color: #fff; border: 1px solid #444; }
+          padding: 60px 20px; overflow-y: auto; font-family: 'Bebas Neue',sans-serif; }
+        .win-title { font-size: 80px; color: #d4642a; letter-spacing: 3px;
+          text-shadow: 0 4px 12px rgba(212,100,42,0.2); }
+        .win-time  { font-size: 44px; color: #1a3d6e; margin-top: 12px; }
+        .win-btn-row { display: flex; gap: 16px; margin-top: 40px; }
+        .win-btn { font-family: 'Bebas Neue',sans-serif; font-size: 26px; letter-spacing: 2px;
+          padding: 16px 48px; border: none; border-radius: 4px; cursor: pointer; }
+        .win-btn-primary   { background: #d4642a; color: #fff; }
+        .win-btn-primary:hover { background: #b85220; }
+        .win-btn-secondary { background: #fff; color: #2a3340; border: 1.5px solid #d8d2c0; }
+        .win-btn-secondary:hover { background: #f5f0e6; }
       </style>
       <div style="text-align:center;margin-bottom:32px">
-        <div style="font-size:80px">🏆</div>
+        <div style="font-size:96px">🏆</div>
         <div class="win-title">ALL LEVELS COMPLETE</div>
-        <div class="win-time">Final time: <span style="color:#e8ff00">${formatTime(finalTimeSec)}</span></div>
+        <div class="win-time">Final time: <span style="color:#d4642a">${formatTime(finalTimeSec)}</span></div>
+        <div style="font-size:28px;color:#5a6678;margin-top:18px">Congrats, ${username}!</div>
       </div>
       <div class="win-btn-row">
         <button class="win-btn win-btn-primary"   id="winBtnPlay">PLAY AGAIN</button>
@@ -746,17 +752,6 @@ class MainScene extends Phaser.Scene {
 
   _showGameOver()    { this._hideAllModals(); this._modalGameOver.classList.add('show'); }
   _showQuitConfirm() { this._hideAllModals(); this._modalQuitConfirm.classList.add('show'); }
-
-  _doRestart() {
-    _savedRecordThisRun = false;
-    this._hideAllModals();
-    this.elapsedSec = 0; this.offTrackTime = 0;
-    this._hideOffTrackUI(); this._hideBalanceUI();
-    this.levelManager._applyConfig();
-    this._sendWsEvent({ type: 'game_reset' });
-    this._gestureAccuracy = null;
-    this._startCountdown();
-  }
 
   _doFullRestart() {
     _savedRecordThisRun = false;
@@ -778,26 +773,33 @@ class MainScene extends Phaser.Scene {
     window.location.href = 'index.html';
   }
 
+  // ── [FIXED] Day-theme modals
   _injectModalCSS() {
     if (document.getElementById('modal-css')) return;
     const s = document.createElement('style');
     s.id = 'modal-css';
     s.textContent = `
-      .modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.78);display:none;
-        align-items:center;justify-content:center;z-index:9999;font-family:'Bebas Neue',sans-serif; }
+      .modal-overlay { position:fixed;inset:0;background:rgba(40,50,60,0.5);display:none;
+        align-items:center;justify-content:center;z-index:9999;
+        font-family:'Bebas Neue',sans-serif;backdrop-filter:blur(8px); }
       .modal-overlay.show { display:flex; }
-      .modal-box { background:#111118;border:2px solid #e8ff00;border-radius:6px;
-        padding:48px 64px;text-align:center;min-width:520px;animation:modalPop .22s ease; }
+      .modal-box { background:#ffffff;border:2px solid #d4642a;border-radius:8px;
+        padding:48px 64px;text-align:center;min-width:520px;animation:modalPop .22s ease;
+        box-shadow:0 12px 40px rgba(100,120,150,0.25); }
       @keyframes modalPop { from{transform:scale(.88);opacity:0} to{transform:scale(1);opacity:1} }
-      .modal-title { font-size:52px;color:#e8ff00;letter-spacing:2px;margin-bottom:12px; }
-      .modal-sub { font-family:monospace;font-size:16px;color:#aaa;margin-bottom:36px; }
+      .modal-title { font-size:54px;color:#d4642a;letter-spacing:2px;margin-bottom:12px; }
+      .modal-sub { font-family:monospace;font-size:16px;color:#5a6678;margin-bottom:36px; }
       .modal-btn { font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:2px;
-        padding:14px 40px;border:none;border-radius:4px;cursor:pointer;margin:0 10px; }
-      .btn-primary   { background:#e8ff00;color:#000; }
-      .btn-secondary { background:#1e1e2e;color:#fff;border:1px solid #444; }
-      .btn-danger    { background:#ff3c3c;color:#fff; }
-      .modal-redemption .modal-box { border-color:#ffaa00; }
-      .modal-redemption .modal-title { color:#ffaa00; }
+        padding:14px 44px;border:none;border-radius:4px;cursor:pointer;margin:0 10px;
+        transition:background .15s; }
+      .btn-primary   { background:#d4642a;color:#fff; }
+      .btn-primary:hover { background:#b85220; }
+      .btn-secondary { background:#fff;color:#2a3340;border:1.5px solid #d8d2c0; }
+      .btn-secondary:hover { background:#f5f0e6; }
+      .btn-danger    { background:#c83a3a;color:#fff; }
+      .btn-danger:hover { background:#a82a2a; }
+      .modal-redemption .modal-box { border-color:#d4a52a; }
+      .modal-redemption .modal-title { color:#d4a52a; }
     `;
     document.head.appendChild(s);
   }
@@ -805,7 +807,7 @@ class MainScene extends Phaser.Scene {
   _createModals(username) {
     this._modalGameOver = this._makeModal('GAME OVER',
       username + ', your run has ended.',
-      [{ label:'RESTART', cls:'btn-primary', cb:()=>this._doFullRestart() },
+      [{ label:'RESTART', cls:'btn-primary',   cb:()=>this._doFullRestart() },
        { label:'QUIT',    cls:'btn-secondary', cb:()=>this._showQuitConfirm() }]);
 
     this._modalLevelClear = this._makeModal('LEVEL CLEAR!', 'Get ready for the next stage…', []);
@@ -815,10 +817,8 @@ class MainScene extends Phaser.Scene {
       [{ label:'YES, QUIT', cls:'btn-danger',    cb:()=>this._doQuit() },
        { label:'NO, BACK',  cls:'btn-secondary', cb:()=>this._showGameOver() }]);
 
-    // [ADDED] Redemption toast modal
     this._modalRedemption = this._makeModal('⚠ ONE MORE CHANCE',
-      'Your one retry — restarting this level',
-      []);
+      'Your one retry — restarting this level', []);
     this._modalRedemption.classList.add('modal-redemption');
 
     document.body.append(this._modalGameOver, this._modalLevelClear,
