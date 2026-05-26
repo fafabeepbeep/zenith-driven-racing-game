@@ -20,16 +20,10 @@
   <script src="player.js"></script>
   <script src="camera.js"></script>
   <script src="levelManager.js"></script>
-
-  <!-- Browser MediaPipe gesture recognizer (NEW) -->
-  <!-- Loads the .task model trained in Python/Colab and runs in browser WASM -->
-  <script src="browserGesture.js"></script>
-
   <script src="main.js"></script>
 </head>
 <body>
   <script>
-    // Redirect to login if no session token
     if (!sessionStorage.getItem('token')) {
       window.location.href = 'index.html';
     }

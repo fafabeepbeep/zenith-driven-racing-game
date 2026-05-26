@@ -12,4 +12,7 @@ gestureModelTrainer.py
 dataset1.zip
 note.txt
 datasetbak
+ ZenithDriven-Gesture.spec
+        build/
+        dist/
 
