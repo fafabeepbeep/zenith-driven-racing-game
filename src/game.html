@@ -7,18 +7,9 @@
     body { margin: 0; background: #000; overflow: hidden; }
   </style>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <!-- Bebas Neue for titles + Press Start 2P for START GAME flicker text -->
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Press+Start+2P&display=swap" rel="stylesheet" />
 
-  <!--
-    FIX #1 — Phaser path was "../libs/phaser.min.js" which broke because
-    game.html lives in src/ alongside the JS files. libs/ is also inside
-    src/, so the correct relative path from src/ is simply "libs/phaser.min.js".
-
-    FIX #3 — Phaser MUST be loaded before ANY game module that references
-    the Phaser global (all of them do via "extends Phaser.Scene" in main.js).
-    Script order is therefore: phaser → game modules → main.js (last).
-  -->
+  <!-- Phaser must be loaded BEFORE any game module -->
   <script src="libs/phaser.min.js"></script>
 
   <!-- Game modules — ORDER MATTERS (dependencies first, main.js last) -->
@@ -29,6 +20,11 @@
   <script src="player.js"></script>
   <script src="camera.js"></script>
   <script src="levelManager.js"></script>
+
+  <!-- Browser MediaPipe gesture recognizer (NEW) -->
+  <!-- Loads the .task model trained in Python/Colab and runs in browser WASM -->
+  <script src="browserGesture.js"></script>
+
   <script src="main.js"></script>
 </head>
 <body>
