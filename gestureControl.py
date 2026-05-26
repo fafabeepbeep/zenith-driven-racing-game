@@ -56,8 +56,7 @@ ML_THRESHOLD  = args.ml_threshold
 
 # ── Config ─────────────────────────────────────────────────────────────────
 # Default to local for development; production users override via --server
-DEFAULT_WS_URL = "wss://zenith-driven-racing-game.onrender.com/gesture"
-WS_URL = args.server if args.server else DEFAULT_WS_URL
+WS_URL = "ws://localhost:3000/gesture"
 if args.server:                          # ← ADD THIS
     WS_URL = args.server                 # ← AND THIS
 SMOOTH_FRAMES      = 9        # majority-vote history window
