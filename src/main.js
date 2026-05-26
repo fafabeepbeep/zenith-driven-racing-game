@@ -1,27 +1,19 @@
-// src/main.js — ZENITH DRIVEN (Browser-MediaPipe Build)
+// src/main.js — ZENITH DRIVEN
 // ═══════════════════════════════════════════════════════════════════════════
-//  WHAT CHANGED IN THIS REVISION
-//  ─────────────────────────────────────────────────────────────────────────
-//  [FIXED] Keyboard ALWAYS works — previously it was disabled whenever any
-//          WebSocket connected (even when no gestures were flowing). Now
-//          keyboard is a permanent OR with whatever gesture source exists.
+//  Final clean build — no download-app UI, no MediaPipe JS, no PyInstaller.
 //
-//  [ADDED] Browser MediaPipe is the primary gesture source (uses the same
-//          .task file trained in Python/Colab). Falls back gracefully if
-//          model load fails or camera denied.
+//  Gesture controls work via the local Python script connecting through
+//  the WebSocket relay at /gesture. Keyboard arrows are a permanent
+//  fallback so the game is always playable.
 //
-//  [KEPT]  Python via Render WebSocket relay still works as an optional
-//          input — exists for users running gestureControl.py locally.
-//
-//  [ADDED] Post-game accuracy report (Game Over + Winner) showing the
-//          same metrics as the Python script: total attempts, stable
-//          holds, per-gesture breakdown, frame counts.
-//
-//  Input precedence each frame:
-//      1. Browser MediaPipe gesture (if active)        ← primary
-//      2. Python WebSocket gesture (if connected)      ← optional fallback
-//      3. Keyboard arrow keys                          ← ALWAYS works
-//          (keyboard input is OR-merged with gesture input each frame)
+//  Gesture emoji mapping (matches gestureControl.py):
+//    START   → 🫵   (pointing finger at camera)
+//    FORWARD → ✋🫳  (palm down, fingers closed)
+//    BRAKE   → 🖐   (open palm facing camera)
+//    REVERSE → 🤜   (closed fist)
+//    LEFT    → 🫲   (hand sign pointing left)
+//    RIGHT   → 🫱   (hand sign pointing right)
+//    BALANCE → 🖐🫳  (palm down, fingers spread)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SCREEN_W  = 1920;
@@ -37,10 +29,26 @@ const STATE_PAUSED     = 6;
 const STATE_REDEMPTION = 7;
 
 const PLAYER = 0;
+const OFFROAD_X_THRESHOLD     = 1.10;
+const BALANCE_COUNTDOWN_LIMIT = 10;
 
+// Gesture-to-display mapping (icon + label + status colour)
+const GESTURE_DISPLAY = {
+  'NONE':    { icon: '—',     label: 'NONE',    color: '#5a6678' },
+  'START':   { icon: '🫵',    label: 'START',   color: '#3a9d40' },
+  'FORWARD': { icon: '✋🫳',   label: 'FORWARD', color: '#3a9d40' },
+  'BRAKE':   { icon: '🖐',    label: 'BRAKE',   color: '#c83a3a' },
+  'REVERSE': { icon: '🤜',    label: 'REVERSE', color: '#d4a52a' },
+  'LEFT':    { icon: '🫲',    label: 'LEFT',    color: '#1a3d6e' },
+  'RIGHT':   { icon: '🫱',    label: 'RIGHT',   color: '#1a3d6e' },
+  'BALANCE': { icon: '🖐🫳',   label: 'BALANCE', color: '#d4642a' },
+};
+
+// Cross-scene WebSocket state (shared between start scene and main scene)
 var sharedSocket      = null;
 var sharedGesture     = 'NONE';
 var sharedWsConnected = false;
+var sharedAccuracy    = null;
 
 const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? 'http://localhost:3000/api'
@@ -73,7 +81,7 @@ function formatTime(secs) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  StartScene — login-themed splash with gesture activation
+//  StartScene
 // ══════════════════════════════════════════════════════════════
 class StartScene extends Phaser.Scene {
   constructor() { super({ key: 'SceneStart' }); }
@@ -99,22 +107,20 @@ class StartScene extends Phaser.Scene {
       fontFamily: "'Bebas Neue',sans-serif", fontSize: '52px', fill: '#1a3d6e'
     }).setOrigin(0.5);
 
-    // Gesture input panel — shows status and "Enable Webcam" button
-    this._inputStatusText = this.add.text(SCREEN_CX, 560, 'Checking input methods…', {
-      fontFamily: 'monospace', fontSize: '24px', fill: '#5a6678',
-      backgroundColor: '#ffffffcc', padding: { x: 16, y: 8 }
-    }).setOrigin(0.5);
+    // ── Small note: gesture controls require local Python script ──
+    var noteBg = this.add.rectangle(SCREEN_CX, 580, 920, 80, 0xffffff, 0.92)
+      .setStrokeStyle(2, 0xd4642a);
+    this.add.text(SCREEN_CX, 560,
+      'NOTE',
+      { fontFamily: 'monospace', fontSize: '14px',
+        fill: '#d4642a', letterSpacing: 3, fontStyle: 'bold' }
+    ).setOrigin(0.5);
+    this.add.text(SCREEN_CX, 595,
+      'Gesture controls available locally via Python script for now · Arrow keys work as fallback',
+      { fontFamily: 'monospace', fontSize: '17px', fill: '#5a6678', align: 'center' }
+    ).setOrigin(0.5);
 
-    this._enableCamBtn = this.add.text(SCREEN_CX, 620,
-      '🎥  ENABLE WEBCAM (recommended)',
-      {
-        fontFamily: 'monospace', fontSize: '24px',
-        fill: '#ffffff', backgroundColor: '#d4642a',
-        padding: { x: 24, y: 12 }
-      }
-    ).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    this._enableCamBtn.on('pointerdown', () => this._enableBrowserGesture());
-
+    // ── START GAME button ──────────────────────────────────────
     this._startText = this.add.text(SCREEN_CX, 720, 'START GAME', {
       fontFamily: "'Press Start 2P',monospace",
       fontSize: '48px', fill: '#d4642a', stroke: '#ffffff', strokeThickness: 4
@@ -127,63 +133,44 @@ class StartScene extends Phaser.Scene {
       this._startText.setAlpha(this._flickerOn ? 1 : 0.3);
     }});
 
-    this.add.text(SCREEN_CX, 790, 'Press SPACE, click START GAME, or show 👆 START gesture', {
+    this.add.text(SCREEN_CX, 790, 'Press SPACE, click START GAME, or show 🫵 START gesture', {
       fontFamily: 'monospace', fontSize: '22px', fill: '#506680'
     }).setOrigin(0.5);
 
+    // ── Gesture legend ─────────────────────────────────────────
     var legends = [
-      ['✋ BRAKE',   'Open palm toward cam'],
-      ['👆 START',   'Index finger forward'],
-      ['🤜 REVERSE', 'Closed fist'],
-      ['👐 FORWARD', 'Palm facing down'],
-      ['⬅ LEFT',    'Fingers pointing left'],
-      ['➡ RIGHT',   'Fingers pointing right'],
-      ['🖐 BALANCE', 'Hold steady on bumps'],
+      ['🫵',   'START',   'Point finger at camera'],
+      ['✋🫳',  'FORWARD', 'Palm down, fingers closed'],
+      ['🖐',   'BRAKE',   'Open palm facing camera'],
+      ['🤜',  'REVERSE', 'Closed fist'],
+      ['🫲',  'LEFT',    'Hand sign pointing left'],
+      ['🫱',  'RIGHT',   'Hand sign pointing right'],
+      ['🖐🫳',  'BALANCE', 'Palm down, fingers spread'],
     ];
-    var legX = SCREEN_CX - 340, legY = 860;
-    legends.forEach(function(pair, i) {
+    var legX = SCREEN_CX - 360, legY = 850;
+    legends.forEach(function(item, i) {
       var col = i % 2 === 0 ? legX : legX + 380;
-      var row = legY + Math.floor(i / 2) * 40;
-      this.add.text(col,     row, pair[0], { fontFamily:'monospace', fontSize:'20px', fill:'#d4642a' });
-      this.add.text(col+155, row, pair[1], { fontFamily:'monospace', fontSize:'20px', fill:'#506680' });
+      var row = legY + Math.floor(i / 2) * 44;
+      this.add.text(col, row, item[0], { fontSize: '28px' });
+      this.add.text(col + 60, row + 4, item[1], {
+        fontFamily:'monospace', fontSize:'20px', fill:'#d4642a', fontStyle:'bold'
+      });
+      this.add.text(col + 165, row + 6, item[2], {
+        fontFamily:'monospace', fontSize:'17px', fill:'#506680'
+      });
     }, this);
 
-    // Optional Python relay status (small text bottom-left)
-    this._relayStatusText = this.add.text(20, SCREEN_H - 30,
-      'Python relay: checking…', {
-      fontFamily:'monospace', fontSize:'14px', fill:'#5a6678',
-      backgroundColor:'#ffffffcc', padding:{x:8, y:4}
+    this._wsStatusText = this.add.text(20, SCREEN_H - 40, 'Python script: checking…', {
+      fontFamily:'monospace', fontSize:'18px', fill:'#5a6678',
+      backgroundColor:'#ffffffcc', padding:{x:10, y:5}
     });
 
-    this._connectRelay();
-    this._updateInputStatus();
+    this._connectWS();
     this.input.keyboard.once('keydown-SPACE', () => this._startGame());
     this._started = false;
   }
 
-  async _enableBrowserGesture() {
-    if (window.BrowserGesture && window.BrowserGesture.isReady) {
-      this._inputStatusText.setText('✓ Webcam already active');
-      return;
-    }
-    if (!window.BrowserGesture) {
-      this._inputStatusText.setText('❌ Browser gesture script missing').setStyle({fill:'#c83a3a'});
-      return;
-    }
-    this._enableCamBtn.setText('Loading model…').setStyle({backgroundColor:'#a0a0a0'});
-    try {
-      await window.BrowserGesture.start();
-      this._enableCamBtn.setText('✓ Webcam active').setStyle({backgroundColor:'#3a9d40'});
-      this._inputStatusText.setText('🎥 Browser MediaPipe ready — play with gestures!')
-        .setStyle({fill:'#3a9d40'});
-    } catch (err) {
-      this._enableCamBtn.setText('⚠ Camera denied — retry').setStyle({backgroundColor:'#c83a3a'});
-      this._inputStatusText.setText('Camera permission denied. Keyboard still works.')
-        .setStyle({fill:'#c83a3a'});
-    }
-  }
-
-  _connectRelay() {
+  _connectWS() {
     try {
       const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
       const wsUrl   = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
@@ -193,7 +180,7 @@ class StartScene extends Phaser.Scene {
 
       sharedSocket.onopen = () => {
         sharedWsConnected = true;
-        this._relayStatusText.setText('Python relay: ✓ (optional)').setStyle({fill:'#3a9d40'});
+        this._wsStatusText?.setText('🐍 Python script: ✓ CONNECTED').setStyle({ fill:'#3a9d40' });
       };
       sharedSocket.onmessage = (event) => {
         try {
@@ -202,45 +189,25 @@ class StartScene extends Phaser.Scene {
             sharedGesture = data.gesture;
             if (data.gesture === 'START' && !this._started) this._startGame();
           }
+          if (data.type === 'accuracy_update' || data.type === 'accuracy_report') {
+            sharedAccuracy = data.data;
+          }
         } catch {}
       };
       sharedSocket.onerror = () => {
         sharedWsConnected = false;
-        this._relayStatusText.setText('Python relay: offline').setStyle({fill:'#5a6678'});
+        this._wsStatusText?.setText('Python script: not connected').setStyle({ fill:'#c83a3a' });
       };
       sharedSocket.onclose = () => {
         sharedWsConnected = false;
-        this._relayStatusText.setText('Python relay: offline').setStyle({fill:'#5a6678'});
+        this._wsStatusText?.setText('Python script: not connected (keyboard works)').setStyle({ fill:'#d4642a' });
       };
-    } catch (e) { console.warn('Relay init failed:', e); }
-  }
-
-  _updateInputStatus() {
-    if (window.BrowserGesture && window.BrowserGesture.isReady) {
-      this._inputStatusText.setText('🎥 Webcam active — gesture mode')
-        .setStyle({fill:'#3a9d40'});
-    } else if (sharedWsConnected) {
-      this._inputStatusText.setText('Python relay connected — keyboard or webcam recommended')
-        .setStyle({fill:'#d4a52a'});
-    } else {
-      this._inputStatusText.setText('Click "Enable Webcam" or use arrow keys')
-        .setStyle({fill:'#5a6678'});
-    }
-  }
-
-  update() {
-    // Listen for START gesture from browser MediaPipe
-    if (window.BrowserGesture && window.BrowserGesture.isReady &&
-        window.BrowserGesture.currentGesture === 'START' && !this._started) {
-      this._startGame();
-    }
+    } catch (e) { console.warn('WebSocket init failed:', e); }
   }
 
   _startGame() {
     if (this._started) return;
     this._started = true;
-    // Hide preview during scene transition
-    if (window.BrowserGesture) window.BrowserGesture.hidePreview();
     var flash = this.add.rectangle(SCREEN_CX, SCREEN_CY, SCREEN_W, SCREEN_H, 0xffffff, 0);
     this.tweens.add({ targets: flash, alpha: 0.6, duration: 120, yoyo: true,
       onComplete: () => this.scene.start('SceneMain') });
@@ -248,7 +215,7 @@ class StartScene extends Phaser.Scene {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  MainScene — racing gameplay
+//  MainScene
 // ══════════════════════════════════════════════════════════════
 class MainScene extends Phaser.Scene {
   constructor() { super({ key: 'SceneMain' }); }
@@ -265,12 +232,7 @@ class MainScene extends Phaser.Scene {
   create() {
     const username = sessionStorage.getItem('username') || 'DRIVER';
     _savedRecordThisRun = false;
-
-    // Reset accuracy tracker for this new run
-    if (window.BrowserGesture) {
-      window.BrowserGesture.resetAccuracy();
-      window.BrowserGesture.showPreview();   // show small webcam preview
-    }
+    sharedAccuracy = null;
 
     this.currentGesture = sharedGesture;
     this.wsConnected    = sharedWsConnected;
@@ -282,11 +244,19 @@ class MainScene extends Phaser.Scene {
           if (typeof d.gesture === 'string') {
             this.currentGesture = sharedGesture = d.gesture;
           }
+          if (d.type === 'accuracy_update' || d.type === 'accuracy_report') {
+            sharedAccuracy = d.data;
+          }
         } catch {}
       };
       sharedSocket.onopen  = () => { this.wsConnected = sharedWsConnected = true; };
       sharedSocket.onerror = () => { this.wsConnected = false; };
       sharedSocket.onclose = () => { this.wsConnected = false; };
+
+      // Notify Python script to reset its accuracy tracker for a new game.
+      if (sharedSocket.readyState === WebSocket.OPEN) {
+        sharedSocket.send(JSON.stringify({ type: 'game_reset' }));
+      }
     }
 
     this.sprBack = this.add.image(SCREEN_CX, SCREEN_CY, 'imageBack');
@@ -308,48 +278,78 @@ class MainScene extends Phaser.Scene {
     this.offTrackWarned    = false;
     this.offTrackTimer     = null;
 
-    this._onBump            = false;
-    this._turbulenceCarry   = 0;
-    this._balanceTime       = 0;
-    this._balanceLimit      = 5;
-    this._balanceWarned     = false;
-    this._balanceTimer      = null;
-    this._balanceCountdown  = 5;
+    this._onBump           = false;
+    this._turbulenceCarry  = 0;
+    this._balanceTime      = 0;
+    this._balanceWarned    = false;
+    this._balanceTimer     = null;
+    this._balanceCountdown = BALANCE_COUNTDOWN_LIMIT;
 
     this._shakeIntensity = 0;
     this._shakeTime      = 0;
+    this._turbShakePhase = 0;
 
-    var hudStyle = (sz, fillCol) => ({
-      fontFamily: 'monospace', fontSize: sz, fill: fillCol || '#2a3340',
+    // ─────────────────────────────────────────────────────────
+    //  Left-side gesture HUD — large, vertically stacked,
+    //  non-overlapping cards.
+    // ─────────────────────────────────────────────────────────
+    const HUD_LEFT_X = 30;
+    let yCursor = 30;
+
+    // Big gesture card (icon + name + sub-line)
+    this.gestureCard = this.add.rectangle(HUD_LEFT_X + 130, yCursor + 70, 260, 140, 0xffffff, 0.95)
+      .setOrigin(0.5).setStrokeStyle(3, 0xd4642a).setDepth(50);
+    this.gestureIconText = this.add.text(HUD_LEFT_X + 60, yCursor + 70, '—', {
+      fontSize: '60px'
+    }).setOrigin(0.5).setDepth(51);
+    this.gestureLabelText = this.add.text(HUD_LEFT_X + 140, yCursor + 50, 'NONE', {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: '36px',
+      fill: '#5a6678',
+      letterSpacing: 2,
+    }).setOrigin(0, 0.5).setDepth(51);
+    this.gestureSubText = this.add.text(HUD_LEFT_X + 140, yCursor + 90, 'Awaiting input', {
+      fontFamily: 'monospace', fontSize: '14px', fill: '#8a96a8'
+    }).setOrigin(0, 0.5).setDepth(51);
+    yCursor += 160;
+
+    // Input source pill
+    this.wsStatusText = this.add.text(HUD_LEFT_X, yCursor, '', {
+      fontFamily: 'monospace', fontSize: '17px', fill: '#5a6678',
       backgroundColor: '#ffffffe6', padding: { x: 12, y: 6 }
-    });
+    }).setDepth(50);
+    yCursor += 48;
 
-    // The 'Gesture: XXX' HUD indicator — small webcam preview will float
-    // just below it (top:130px), per Option B spec
-    this.gestureText  = this.add.text(20, 20, 'Gesture: NONE',
-      hudStyle('28px', '#d4642a')).setDepth(50);
-    this.wsStatusText = this.add.text(20, 75, '',
-      hudStyle('18px', '#5a6678')).setDepth(50);
-
-    this.timerText = this.add.text(SCREEN_CX, 20, '00:00.0', {
-      fontSize: '38px', fill: '#ffffff', fontFamily: 'monospace',
-      backgroundColor: '#d4642a', padding: { x: 18, y: 8 }
-    }).setOrigin(0.5, 0).setDepth(50);
-
-    this.levelText = this.add.text(SCREEN_CX, 82, '',
-      hudStyle('22px', '#1a3d6e')).setOrigin(0.5, 0).setDepth(50);
+    // Level + lap pill
+    this.levelText = this.add.text(HUD_LEFT_X, yCursor, '', {
+      fontFamily: 'monospace', fontSize: '20px', fill: '#1a3d6e',
+      backgroundColor: '#ffffffe6', padding: { x: 12, y: 6 }
+    }).setDepth(50);
     this.levelManager.levelText = this.levelText;
 
-    this.add.text(SCREEN_W - 20, 20, '👤 ' + username, {
+    // Top-center timer
+    this.timerText = this.add.text(SCREEN_CX, 30, '00:00.0', {
+      fontSize: '42px', fill: '#ffffff', fontFamily: 'monospace',
+      backgroundColor: '#d4642a', padding: { x: 22, y: 10 }
+    }).setOrigin(0.5, 0).setDepth(50);
+
+    // Top-right username
+    this.add.text(SCREEN_W - 30, 30, '👤 ' + username, {
       fontFamily: 'monospace', fontSize: '22px', fill: '#2a3340',
       backgroundColor: '#ffffffe6', padding: { x: 14, y: 7 }
     }).setOrigin(1, 0).setDepth(50);
 
-    this.speedText = this.add.text(20, SCREEN_H - 60, 'Speed: 0 km/h',
-      hudStyle('28px', '#2a3340')).setDepth(50);
-    this.diffText  = this.add.text(20, SCREEN_H - 110, 'Traffic Lvl: 1',
-      hudStyle('22px', '#3a9d40')).setDepth(50);
+    // Bottom-left speed + difficulty
+    this.speedText = this.add.text(HUD_LEFT_X, SCREEN_H - 60, 'Speed: 0 km/h', {
+      fontFamily: 'monospace', fontSize: '28px', fill: '#2a3340',
+      backgroundColor: '#ffffffe6', padding: { x: 12, y: 6 }
+    }).setDepth(50);
+    this.diffText  = this.add.text(HUD_LEFT_X, SCREEN_H - 110, 'Traffic Lvl: 1', {
+      fontFamily: 'monospace', fontSize: '22px', fill: '#3a9d40',
+      backgroundColor: '#ffffffe6', padding: { x: 12, y: 6 }
+    }).setDepth(50);
 
+    // Center alerts
     this.offTrackText = this.add.text(SCREEN_CX, SCREEN_CY - 200, '', {
       fontSize: '64px', fill: '#ffffff', fontFamily: 'monospace',
       backgroundColor: '#c83a3a', padding: { x: 28, y: 14 }
@@ -399,25 +399,12 @@ class MainScene extends Phaser.Scene {
     this._startCountdown();
   }
 
-  // ─────────────────────────────────────────────────────────
-  //  GESTURE INPUT — merge all sources with KEYBOARD ALWAYS ON
-  //  Precedence: browser MediaPipe > Python relay > NONE
-  //  Keyboard is OR-merged on top so it always works.
-  // ─────────────────────────────────────────────────────────
-  _resolveActiveGesture() {
-    if (window.BrowserGesture && window.BrowserGesture.isReady) {
-      return window.BrowserGesture.currentGesture;
-    }
-    if (this.wsConnected) {
-      return this.currentGesture;
-    }
-    return 'NONE';
-  }
-
-  _resolveInputSourceLabel() {
-    if (window.BrowserGesture && window.BrowserGesture.isReady) return '🎥 Browser';
-    if (this.wsConnected) return '🐍 Python';
-    return '⌨ Keyboard only';
+  _updateGestureIndicator(gestureName) {
+    var info = GESTURE_DISPLAY[gestureName] || GESTURE_DISPLAY['NONE'];
+    this.gestureIconText.setText(info.icon);
+    this.gestureLabelText.setText(info.label).setStyle({ fill: info.color });
+    this.gestureSubText.setText(this.wsConnected ? '🐍 Python script' : '⌨  Keyboard mode');
+    this.gestureCard.setStrokeStyle(3, parseInt(info.color.slice(1), 16));
   }
 
   _createPauseModal(username) {
@@ -486,7 +473,7 @@ class MainScene extends Phaser.Scene {
     this.time.delayedCall(300, showNext);
   }
 
-  _isOffTrack() { return Math.abs(this.player.x) > 1.0; }
+  _isOffTrack() { return Math.abs(this.player.x) > OFFROAD_X_THRESHOLD; }
 
   _hideOffTrackUI() {
     this.offTrackText.setVisible(false);
@@ -513,7 +500,7 @@ class MainScene extends Phaser.Scene {
   _hideBalanceUI() {
     this.balanceText.setVisible(false);
     if (this._balanceTimer) { this._balanceTimer.remove(false); this._balanceTimer = null; }
-    this._balanceCountdown = 5;
+    this._balanceCountdown = BALANCE_COUNTDOWN_LIMIT;
     this._balanceWarned    = false;
     this._balanceTime      = 0;
   }
@@ -521,10 +508,10 @@ class MainScene extends Phaser.Scene {
   _startBalanceCountdown() {
     if (this._balanceWarned) return;
     this._balanceWarned    = true;
-    this._balanceCountdown = 5;
-    this.balanceText.setText('🖐 HOLD BALANCE!  5').setVisible(true);
+    this._balanceCountdown = BALANCE_COUNTDOWN_LIMIT;
+    this.balanceText.setText('🖐 HOLD BALANCE!  ' + BALANCE_COUNTDOWN_LIMIT).setVisible(true);
     this._balanceTimer = this.time.addEvent({
-      delay: 1000, repeat: 4,
+      delay: 1000, repeat: BALANCE_COUNTDOWN_LIMIT - 1,
       callback: () => {
         this._balanceCountdown--;
         this.balanceText.setText('🖐 HOLD BALANCE!  ' + this._balanceCountdown);
@@ -584,9 +571,6 @@ class MainScene extends Phaser.Scene {
     this._shakeTime      = 1.5;
   }
 
-  // ─────────────────────────────────────────────────────────
-  //  UPDATE LOOP
-  // ─────────────────────────────────────────────────────────
   update(_time, delta) {
     switch (this._gameState) {
 
@@ -603,11 +587,8 @@ class MainScene extends Phaser.Scene {
         var inCooldown = this.traffic.collisionCooldown > 0;
         var balanceHeld = false;
 
-        // ── [FIXED] Get active gesture from best available source
-        var activeGesture = this._resolveActiveGesture();
-        this.currentGesture = activeGesture;
+        var activeGesture = this.wsConnected ? this.currentGesture : 'NONE';
 
-        // Translate gesture to input flags
         var gestureLeft   = !inCooldown && activeGesture === 'LEFT';
         var gestureRight  = !inCooldown && activeGesture === 'RIGHT';
         var gestureAccel  = !inCooldown && activeGesture === 'FORWARD';
@@ -619,8 +600,7 @@ class MainScene extends Phaser.Scene {
           gestureLeft = gestureRight = gestureAccel = gestureBrake = gestureRev = false;
         }
 
-        // ── [FIXED] Keyboard ALWAYS works — OR-merged with gestures
-        // Player can use ANY combination — keyboard fallback never disabled.
+        // Keyboard always works — OR-merged with gesture input
         this.player.moveLeft   = gestureLeft  || (!inCooldown && this.keyLeft.isDown);
         this.player.moveRight  = gestureRight || (!inCooldown && this.keyRight.isDown);
         this.player.accelerate = gestureAccel || (!inCooldown && this.keyUp.isDown);
@@ -630,7 +610,7 @@ class MainScene extends Phaser.Scene {
 
         this.player.balanceActive = balanceHeld;
 
-        // ── Bump detection with carry-over ───────────────
+        // Bump detection with turbulence carry-over
         var onBumpNow = this.circuit.isOnBump(this.player.z);
         if (onBumpNow) {
           if (!this._onBump) this._onBump = true;
@@ -669,10 +649,22 @@ class MainScene extends Phaser.Scene {
         this.camera.update();
         this.traffic.update(dt);
 
+        // Collision shake
         if (this._shakeTime > 0) {
           this._shakeTime -= dt;
           var shakeAmount = this._shakeIntensity * (this._shakeTime / 1.5);
           this.camera.x += (Math.random() - 0.5) * shakeAmount * 2;
+        }
+
+        // Continuous turbulence shake while on bumps
+        if (this.player.turbulent) {
+          this._turbShakePhase += dt * 22;
+          var turbStrength = balanceHeld ? 6 : 18;
+          var turbX = Math.sin(this._turbShakePhase) * turbStrength
+                    + Math.sin(this._turbShakePhase * 2.3) * turbStrength * 0.4;
+          var turbY = Math.cos(this._turbShakePhase * 1.7) * turbStrength * 0.6;
+          this.camera.x += turbX;
+          this.camera.y += turbY;
         }
 
         this.circuit.render3D();
@@ -692,8 +684,7 @@ class MainScene extends Phaser.Scene {
           this.timerRunning = false;
           this._gameState   = STATE_COMPLETE;
           saveRecord(Math.round(this.elapsedSec * 10) / 10, this.levelManager.totalLevels, 'Completed');
-          this._hideAllModals();
-          this._showWinScreen(Math.round(this.elapsedSec * 10) / 10);
+          this._requestAccuracyAndShow(() => this._showWinScreen(Math.round(this.elapsedSec * 10) / 10));
         } else if (levelResult === 'next') {
           this._hideAllModals();
           this._modalLevelClear.classList.add('show');
@@ -710,8 +701,12 @@ class MainScene extends Phaser.Scene {
         this.speedText.setText('Speed: ' + kph + ' km/h' + speedSuffix);
         this.diffText.setText('Traffic Lvl: ' + this.traffic.difficultyLevel
                               + '  |  Cars: ' + this.traffic.vehicles.length);
-        this.gestureText.setText('Gesture: ' + this.currentGesture);
-        this.wsStatusText.setText('Input: ' + this._resolveInputSourceLabel());
+
+        this.currentGesture = activeGesture;
+        this._updateGestureIndicator(activeGesture);
+
+        this.wsStatusText.setText(this.wsConnected ? 'Input: 🐍 Python script' : 'Input: ⌨  Keyboard only');
+        this.wsStatusText.setStyle({ fill: this.wsConnected ? '#3a9d40' : '#d4642a' });
 
         var mins = Math.floor(this.elapsedSec / 60).toString().padStart(2, '0');
         var secs = (this.elapsedSec % 60).toFixed(1).padStart(4, '0');
@@ -737,18 +732,20 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // ─────────────────────────────────────────────────────────
-  //  WIN SCREEN with ACCURACY REPORT
-  // ─────────────────────────────────────────────────────────
+  _requestAccuracyAndShow(showFn) {
+    if (sharedSocket && sharedSocket.readyState === WebSocket.OPEN) {
+      sharedSocket.send(JSON.stringify({ type: 'request_accuracy' }));
+      this.time.delayedCall(700, () => showFn());
+    } else {
+      showFn();
+    }
+  }
+
   _showWinScreen(finalTimeSec) {
     const username = sessionStorage.getItem('username') || 'DRIVER';
-    if (window.BrowserGesture) window.BrowserGesture.hidePreview();
+    const acc = sharedAccuracy;
 
-    const acc = (window.BrowserGesture && window.BrowserGesture.isReady)
-      ? window.BrowserGesture.accuracy()
-      : null;
-
-    const overlay = document.createElement('div');
+    const overlay  = document.createElement('div');
     overlay.id = 'win-overlay';
     overlay.innerHTML = `
       <style>
@@ -797,22 +794,21 @@ class MainScene extends Phaser.Scene {
   _buildAccuracyHtml(acc) {
     if (!acc) {
       return `<div style="margin-top:8px;font-family:monospace;color:#5a6678;font-size:18px">
-        (No gesture data — webcam was not enabled this run)
+        (No gesture data — Python script was not connected)
       </div>`;
     }
     const dist = acc.gesture_distribution || {};
     const distRows = Object.keys(dist).sort((a,b) => dist[b] - dist[a])
       .map(g => `<div class="stat-row"><span>${g}</span><span class="v">${dist[g]} frames</span></div>`).join('');
-
     return `
       <div class="win-row">
         <div class="win-card">
           <h3>🎯 GESTURE ACCURACY</h3>
-          <div class="stat-row"><span>Accuracy</span><span class="v">${acc.accuracy.toFixed(1)}%</span></div>
-          <div class="stat-row"><span>Total attempts</span><span class="v">${acc.total_gestures}</span></div>
-          <div class="stat-row"><span>Stable holds</span><span class="v">${acc.correct_detections}</span></div>
-          <div class="stat-row"><span>Flickering</span><span class="v">${acc.incorrect_detections}</span></div>
-          <div class="stat-row"><span>Detected frames</span><span class="v">${acc.detected_frames} / ${acc.total_frames}</span></div>
+          <div class="stat-row"><span>Accuracy</span><span class="v">${(acc.accuracy ?? 0).toFixed(1)}%</span></div>
+          <div class="stat-row"><span>Total attempts</span><span class="v">${acc.total_gestures || 0}</span></div>
+          <div class="stat-row"><span>Stable holds</span><span class="v">${acc.correct_detections || 0}</span></div>
+          <div class="stat-row"><span>Flickering</span><span class="v">${acc.incorrect_detections || 0}</span></div>
+          <div class="stat-row"><span>Detected frames</span><span class="v">${acc.detected_frames || 0} / ${acc.total_frames || 0}</span></div>
         </div>
         <div class="win-card">
           <h3>📊 GESTURE BREAKDOWN</h3>
@@ -822,101 +818,73 @@ class MainScene extends Phaser.Scene {
   }
 
   _showGameOver() {
-    const username = sessionStorage.getItem('username') || 'DRIVER';
-    if (window.BrowserGesture) window.BrowserGesture.hidePreview();
-
-    const acc = (window.BrowserGesture && window.BrowserGesture.isReady)
-      ? window.BrowserGesture.accuracy()
-      : null;
-
-    this._hideAllModals();
-    // Replace the simple game-over modal content with detailed accuracy
-    const overlay = document.createElement('div');
-    overlay.id = 'gameover-overlay';
-    overlay.innerHTML = `
-      <style>
-        #gameover-overlay { position: fixed; inset: 0; z-index: 10000;
-          background: linear-gradient(180deg, #c8e0f5 0%, #faf0d8 100%);
-          display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-          padding: 40px 20px; overflow-y: auto; font-family: 'Bebas Neue',sans-serif; }
-        .go-title { font-size: 72px; color: #c83a3a; letter-spacing: 3px; }
-        .go-sub   { font-size: 24px; color: #5a6678; margin-top: 8px; font-family: monospace; }
-        .go-row   { display: flex; gap: 24px; margin-top: 16px; align-items: stretch; justify-content: center; }
-        .go-card  { background: #fff; border: 2px solid #d8d2c0; border-radius: 8px;
-                    padding: 24px 32px; min-width: 280px; }
-        .go-card h3 { font-family: 'Bebas Neue',sans-serif; font-size: 28px; color: #d4642a;
-                      letter-spacing: 2px; margin-bottom: 12px; }
-        .stat-row { display: flex; justify-content: space-between; font-family: monospace;
-                    font-size: 16px; color: #2a3340; padding: 6px 0; border-bottom: 1px solid #f0eadd; }
-        .stat-row:last-child { border-bottom: none; }
-        .stat-row .v { font-weight: bold; color: #d4642a; }
-        .go-btn-row { display: flex; gap: 16px; margin-top: 32px; }
-        .go-btn { font-family: 'Bebas Neue',sans-serif; font-size: 26px; letter-spacing: 2px;
-          padding: 16px 48px; border: none; border-radius: 4px; cursor: pointer; }
-        .go-btn-primary   { background: #d4642a; color: #fff; }
-        .go-btn-primary:hover { background: #b85220; }
-        .go-btn-secondary { background: #fff; color: #2a3340; border: 1.5px solid #d8d2c0; }
-      </style>
-      <div style="text-align:center;margin-top:40px">
-        <div style="font-size:84px">💀</div>
-        <div class="go-title">GAME OVER</div>
-        <div class="go-sub">${username}, your run has ended.</div>
-      </div>
-      ${this._buildAccuracyHtmlPlain(acc)}
-      <div class="go-btn-row">
-        <button class="go-btn go-btn-primary"   id="goBtnRestart">RESTART</button>
-        <button class="go-btn go-btn-secondary" id="goBtnQuit">QUIT</button>
-      </div>`;
-    document.body.appendChild(overlay);
-    this._gameOverOverlay = overlay;
-    document.getElementById('goBtnRestart').addEventListener('click', () => {
-      overlay.remove(); this._doFullRestart();
-    });
-    document.getElementById('goBtnQuit').addEventListener('click', () => {
-      overlay.remove(); this._doQuit();
-    });
-  }
-
-  _buildAccuracyHtmlPlain(acc) {
-    if (!acc) {
-      return `<div style="margin-top:8px;font-family:monospace;color:#5a6678;font-size:18px">
-        (No gesture data — webcam was not enabled this run)
-      </div>`;
-    }
-    const dist = acc.gesture_distribution || {};
-    const distRows = Object.keys(dist).sort((a,b) => dist[b] - dist[a])
-      .map(g => `<div class="stat-row"><span>${g}</span><span class="v">${dist[g]} frames</span></div>`).join('');
-    return `
-      <div class="go-row">
-        <div class="go-card">
-          <h3>🎯 GESTURE ACCURACY</h3>
-          <div class="stat-row"><span>Accuracy</span><span class="v">${acc.accuracy.toFixed(1)}%</span></div>
-          <div class="stat-row"><span>Total attempts</span><span class="v">${acc.total_gestures}</span></div>
-          <div class="stat-row"><span>Stable holds</span><span class="v">${acc.correct_detections}</span></div>
-          <div class="stat-row"><span>Flickering</span><span class="v">${acc.incorrect_detections}</span></div>
-          <div class="stat-row"><span>Detected frames</span><span class="v">${acc.detected_frames} / ${acc.total_frames}</span></div>
+    this._requestAccuracyAndShow(() => {
+      const username = sessionStorage.getItem('username') || 'DRIVER';
+      const acc = sharedAccuracy;
+      this._hideAllModals();
+      const overlay = document.createElement('div');
+      overlay.id = 'gameover-overlay';
+      overlay.innerHTML = `
+        <style>
+          #gameover-overlay { position: fixed; inset: 0; z-index: 10000;
+            background: linear-gradient(180deg, #c8e0f5 0%, #faf0d8 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            padding: 40px 20px; overflow-y: auto; font-family: 'Bebas Neue',sans-serif; }
+          .go-title { font-size: 72px; color: #c83a3a; letter-spacing: 3px; }
+          .go-sub   { font-size: 24px; color: #5a6678; margin-top: 8px; font-family: monospace; }
+          .go-row   { display: flex; gap: 24px; margin-top: 16px; align-items: stretch; justify-content: center; }
+          .go-card  { background: #fff; border: 2px solid #d8d2c0; border-radius: 8px;
+                      padding: 24px 32px; min-width: 280px; }
+          .go-card h3 { font-family: 'Bebas Neue',sans-serif; font-size: 28px; color: #d4642a;
+                        letter-spacing: 2px; margin-bottom: 12px; }
+          .stat-row { display: flex; justify-content: space-between; font-family: monospace;
+                      font-size: 16px; color: #2a3340; padding: 6px 0; border-bottom: 1px solid #f0eadd; }
+          .stat-row:last-child { border-bottom: none; }
+          .stat-row .v { font-weight: bold; color: #d4642a; }
+          .go-btn-row { display: flex; gap: 16px; margin-top: 32px; }
+          .go-btn { font-family: 'Bebas Neue',sans-serif; font-size: 26px; letter-spacing: 2px;
+            padding: 16px 48px; border: none; border-radius: 4px; cursor: pointer; }
+          .go-btn-primary   { background: #d4642a; color: #fff; }
+          .go-btn-primary:hover { background: #b85220; }
+          .go-btn-secondary { background: #fff; color: #2a3340; border: 1.5px solid #d8d2c0; }
+        </style>
+        <div style="text-align:center;margin-top:40px">
+          <div style="font-size:84px">💀</div>
+          <div class="go-title">GAME OVER</div>
+          <div class="go-sub">${username}, your run has ended.</div>
         </div>
-        <div class="go-card">
-          <h3>📊 GESTURE BREAKDOWN</h3>
-          ${distRows || '<div class="stat-row"><span>No gestures detected</span></div>'}
-        </div>
-      </div>`;
+        ${this._buildAccuracyHtml(acc)}
+        <div class="go-btn-row">
+          <button class="go-btn go-btn-primary"   id="goBtnRestart">RESTART</button>
+          <button class="go-btn go-btn-secondary" id="goBtnQuit">QUIT</button>
+        </div>`;
+      document.body.appendChild(overlay);
+      this._gameOverOverlay = overlay;
+      document.getElementById('goBtnRestart').addEventListener('click', () => {
+        overlay.remove(); this._doFullRestart();
+      });
+      document.getElementById('goBtnQuit').addEventListener('click', () => {
+        overlay.remove(); this._doQuit();
+      });
+    });
   }
 
   _doFullRestart() {
     _savedRecordThisRun = false;
+    sharedAccuracy = null;
     this._hideAllModals();
     if (this._gameOverOverlay) { this._gameOverOverlay.remove(); this._gameOverOverlay = null; }
-    if (window.BrowserGesture) { window.BrowserGesture.resetAccuracy(); window.BrowserGesture.showPreview(); }
     this.elapsedSec = 0; this.offTrackTime = 0;
     this._hideOffTrackUI(); this._hideBalanceUI();
     this.levelManager.reset();
+    if (sharedSocket && sharedSocket.readyState === WebSocket.OPEN) {
+      sharedSocket.send(JSON.stringify({ type: 'game_reset' }));
+    }
     this._startCountdown();
   }
 
   async _doQuit() {
     this._hideAllModals();
-    if (window.BrowserGesture) window.BrowserGesture.hidePreview();
     await saveRecord(Math.round(this.elapsedSec * 10) / 10,
                      this.levelManager.currentLevel, 'Game Unfinished');
     sessionStorage.removeItem('token');

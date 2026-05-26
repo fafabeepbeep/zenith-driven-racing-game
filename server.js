@@ -1,12 +1,9 @@
-// server.js — ZENITH DRIVEN (Browser-MediaPipe Build)
+// server.js — ZENITH DRIVEN
 // ═══════════════════════════════════════════════════════════════════════════
-//  WHAT CHANGED IN THIS REVISION
-//  ─────────────────────────────────────────────────────────────────────────
-//  [ADDED] Static serving of /models/ directory so the browser can fetch
-//          the trained .task model file (e.g. GET /models/gestureModel.task)
+//  WebSocket relay on /gesture path — receives gesture events from the
+//  local Python gesture controller app and broadcasts to connected browsers.
 //
-//  [KEPT]  Everything else — WebSocket relay (for optional Python users),
-//          /api/* endpoints, auth, leaderboard.
+//  [REMOVED] /models/ static route (was for browser MediaPipe, no longer needed)
 // ═══════════════════════════════════════════════════════════════════════════
 
 require('dotenv').config();
@@ -29,23 +26,11 @@ const NODE_ENV    = process.env.NODE_ENV || 'development';
 app.set('trust proxy', 1);
 app.use(cors({ origin: '*', credentials: false }));
 app.use(express.json());
-
-// ── [ADDED] Serve trained gesture model from project root ─────────
-// Lets the browser load /models/gestureModel.task via MediaPipe Tasks JS.
-app.use('/models', express.static(path.join(__dirname, 'models'), {
-  maxAge: '7d',                          // models change rarely → long cache
-  setHeaders: (res) => {
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Content-Type', 'application/octet-stream');
-  }
-}));
-
 app.use(express.static(path.join(__dirname, 'src')));
 
 app.use((req, _res, next) => {
   if (!req.path.startsWith('/assets') && !req.path.endsWith('.js') &&
-      !req.path.endsWith('.html') && !req.path.endsWith('.css') &&
-      !req.path.startsWith('/models')) {
+      !req.path.endsWith('.html') && !req.path.endsWith('.css')) {
     console.log(`[API] ${req.method} ${req.path}`);
   }
   next();
@@ -97,18 +82,15 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password)
     return res.status(400).json({ error: 'Username and password required' });
-
   try {
     const [rows] = await pool.execute(
       'SELECT id, username, password_hash FROM users WHERE username = ?',
       [username]
     );
     if (!rows.length) return res.status(401).json({ error: 'Invalid credentials' });
-
     const user = rows[0];
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
-
     const token = jwt.sign(
       { id: user.id, username: user.username },
       JWT_SECRET, { expiresIn: '8h' }
@@ -199,7 +181,6 @@ httpServer.listen(PORT, () => {
   console.log(`  ZENITH DRIVEN — Server`);
   console.log(`  Listening   → http://localhost:${PORT}`);
   console.log(`  WebSocket   → ws://localhost:${PORT}/gesture`);
-  console.log(`  Model file  → http://localhost:${PORT}/models/gestureModel.task`);
   console.log(`  Environment → ${NODE_ENV}`);
   console.log('═══════════════════════════════════════════════════');
 });

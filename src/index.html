@@ -8,20 +8,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
-/* ═══════════════════════════════════════════════════════════════════════
-   ZENITH DRIVEN — Login Page (DAY THEME)
-   [UPDATED] Full theme rebuild: bright sky gradient, orange CTAs,
-             uniform sizing, consistent spacing throughout.
-   ═══════════════════════════════════════════════════════════════════════ */
 :root {
-  /* Day palette */
   --bg-sky-top:    #c8e0f5;
   --bg-sky-bottom: #faf0d8;
   --surface:       #ffffff;
   --surface-soft:  #f5f0e6;
   --border:        #d8d2c0;
   --border-strong: #b8b0a0;
-  --accent:        #d4642a;       /* warm orange */
+  --accent:        #d4642a;
   --accent-hover:  #b85220;
   --accent-soft:   #fae8d8;
   --success:       #3a9d40;
@@ -35,98 +29,152 @@
   --font-head: 'Bebas Neue', sans-serif;
   --font-mono: 'DM Mono', monospace;
   --font-body: 'Inter', sans-serif;
-
-  /* Uniform sizing tokens */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body {
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
   background: linear-gradient(180deg, var(--bg-sky-top) 0%, var(--bg-sky-bottom) 100%);
-  color: var(--text); font-family: var(--font-body); min-height: 100vh;
-  display: grid; grid-template-columns: 1fr 1fr; overflow: hidden;
+  color: var(--text); font-family: var(--font-body);
 }
 
-/* ── Left panel ─────────────────────────────────────────────────── */
+#scale-stage {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 1920px; height: 1080px;
+  transform-origin: center center;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%; height: 100%;
+}
+
+/* ── Left panel: branding + leaderboard ──────────────────────── */
 .branding {
-  position: relative; display: flex; flex-direction: column;
-  justify-content: flex-start; padding: var(--space-7) 60px var(--space-6);
+  position: relative;
+  display: flex; flex-direction: column;
+  padding: 56px 64px 48px;
   overflow: hidden;
 }
-/* Subtle road silhouette */
 .road-art {
-  position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-  width: 360px; height: 70%;
+  position: absolute; bottom: 0; left: 50%;
+  transform: translateX(-50%);
+  width: 460px; height: 60%;
   background: linear-gradient(180deg,
     rgba(70,90,110,0) 0%,
     rgba(70,90,110,0.10) 40%,
-    rgba(70,90,110,0.20) 100%);
+    rgba(70,90,110,0.22) 100%);
   clip-path: polygon(38% 0%, 62% 0%, 100% 100%, 0% 100%);
 }
 .road-art::after {
   content: ''; position: absolute; left: 50%; top: 0;
-  transform: translateX(-50%); width: 5px; height: 100%;
+  transform: translateX(-50%);
+  width: 6px; height: 100%;
   background: repeating-linear-gradient(180deg,
-    var(--accent) 0px, var(--accent) 30px,
-    transparent 30px, transparent 60px);
+    var(--accent) 0px, var(--accent) 36px,
+    transparent 36px, transparent 72px);
   animation: dashMove 1.6s linear infinite;
-  opacity: 0.7;
+  opacity: 0.75;
 }
-@keyframes dashMove { from { background-position: 0 0; } to { background-position: 0 60px; } }
+@keyframes dashMove { from { background-position: 0 0; } to { background-position: 0 72px; } }
 
 .branding-content { position: relative; z-index: 1; }
+
 .logo {
-  font-family: var(--font-head); font-size: clamp(96px, 10vw, 160px);
-  line-height: 0.9; color: var(--text); letter-spacing: 2px;
-  text-shadow: 0 4px 12px rgba(100,120,150,0.25);
+  font-family: var(--font-head);
+  font-size: 160px;
+  line-height: 0.88;
+  letter-spacing: 3px;
+  color: var(--text);
+  text-shadow: 0 6px 16px rgba(100,120,150,0.25);
 }
 .logo .accent { color: var(--accent); }
+
 .tagline {
-  font-family: var(--font-mono); font-size: 16px; color: var(--text-soft);
-  letter-spacing: 4px; text-transform: uppercase; margin-top: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--text-soft);
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  margin-top: 22px;
 }
 
-/* ── Leaderboard panel ──────────────────────────────────────────── */
+/* ── Local-script note ────────────────────────────────────────
+   Small, single-line callout informing testers that gesture
+   controls require running the Python script locally for now.
+   Includes a link to the GitHub source for setup instructions. */
+.local-script-note {
+  margin-top: 28px;
+  padding: 14px 22px;
+  background: var(--surface-soft);
+  border-left: 4px solid var(--accent);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--text-soft);
+  line-height: 1.6;
+}
+.local-script-note .label {
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-size: 12px;
+  display: block;
+  margin-bottom: 4px;
+}
+.local-script-note a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.local-script-note a:hover { text-decoration: underline; }
+
+/* ── Leaderboard ─────────────────────────────────────────────── */
 .lb-panel {
-  margin-top: var(--space-6); padding: var(--space-5);
-  background: rgba(255,255,255,0.7); border-radius: var(--radius-md);
+  margin-top: 26px;
+  padding: 24px 30px;
+  background: rgba(255,255,255,0.78);
+  border-radius: 8px;
   border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(100,120,150,0.10);
 }
 .lb-title {
-  font-family: var(--font-mono); font-size: 14px; letter-spacing: 4px;
-  text-transform: uppercase; color: var(--accent);
-  margin-bottom: var(--space-4); font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 18px;
+  font-weight: 500;
 }
-.lb-list { list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.lb-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .lb-row {
-  display: grid; grid-template-columns: 36px 1fr auto auto;
-  gap: var(--space-4); align-items: center; font-size: 16px;
-  padding: var(--space-3) var(--space-2);
+  display: grid;
+  grid-template-columns: 42px 1fr auto auto;
+  gap: 14px; align-items: center;
+  font-size: 16px;
+  padding: 10px 10px;
   border-bottom: 1px solid var(--border);
-  opacity: 0; animation: fadeUp 0.4s ease forwards;
+  opacity: 0;
+  animation: fadeUp 0.4s ease forwards;
 }
 .lb-row:last-child { border-bottom: none; }
-
-/* Top 3 highlights */
 .lb-row.rank-1 {
-  background: linear-gradient(90deg, rgba(212,165,42,0.15) 0%, transparent 100%);
-  border-radius: var(--radius-sm); border: 1px solid rgba(212,165,42,0.4);
-  transform: scale(1.02);
+  background: linear-gradient(90deg, rgba(212,165,42,0.18) 0%, transparent 100%);
+  border-radius: 4px;
+  border: 1px solid rgba(212,165,42,0.4);
 }
 .lb-row.rank-2 {
-  background: linear-gradient(90deg, rgba(160,168,176,0.15) 0%, transparent 100%);
-  border-radius: var(--radius-sm); border: 1px solid rgba(160,168,176,0.3);
+  background: linear-gradient(90deg, rgba(160,168,176,0.16) 0%, transparent 100%);
+  border-radius: 4px;
+  border: 1px solid rgba(160,168,176,0.3);
 }
 .lb-row.rank-3 {
-  background: linear-gradient(90deg, rgba(184,106,58,0.12) 0%, transparent 100%);
-  border-radius: var(--radius-sm); border: 1px solid rgba(184,106,58,0.3);
+  background: linear-gradient(90deg, rgba(184,106,58,0.13) 0%, transparent 100%);
+  border-radius: 4px;
+  border: 1px solid rgba(184,106,58,0.3);
 }
 .lb-row:nth-child(1) { animation-delay: 0.10s; }
 .lb-row:nth-child(2) { animation-delay: 0.20s; }
@@ -135,90 +183,128 @@ body {
 .lb-row:nth-child(5) { animation-delay: 0.50s; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); }
                     to   { opacity: 1; transform: none; } }
-.lb-row.rank-1 { animation-fill-mode: none; opacity: 1; transform: scale(1.02); }
-
+.lb-row.rank-1 { animation-fill-mode: none; opacity: 1; }
 .lb-rank { font-family: var(--font-mono); font-size: 16px; color: var(--text-muted); }
-.lb-rank.gold   { color: var(--gold);   font-size: 20px; font-weight: 600; }
-.lb-rank.silver { color: var(--silver); font-size: 18px; font-weight: 600; }
-.lb-rank.bronze { color: var(--bronze); font-size: 18px; font-weight: 600; }
+.lb-rank.gold   { color: var(--gold);   font-size: 22px; font-weight: 600; }
+.lb-rank.silver { color: var(--silver); font-size: 20px; font-weight: 600; }
+.lb-rank.bronze { color: var(--bronze); font-size: 20px; font-weight: 600; }
 .lb-name { color: var(--text); font-weight: 500; }
 .lb-row.rank-1 .lb-name { color: #8a6818; font-weight: 700; }
 .lb-time { font-family: var(--font-mono); color: var(--accent); font-size: 15px; font-weight: 500; }
 .lb-badge {
-  font-size: 11px; padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm); text-transform: uppercase;
-  letter-spacing: 1px; font-weight: 600;
+  font-size: 11px; padding: 3px 8px; border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 1px; font-weight: 600;
 }
-.lb-badge.done { background: rgba(58,157,64,0.18); color: var(--success); }
+.lb-badge.done       { background: rgba(58,157,64,0.18); color: var(--success); }
 .lb-badge.unfinished { background: rgba(200,58,58,0.18); color: var(--danger); }
-
-/* View full button */
-.lb-view-full-wrap { margin-top: var(--space-4); text-align: center; }
+.lb-view-full-wrap { margin-top: 18px; text-align: center; }
 .btn-view-full {
-  background: transparent; border: 1.5px solid var(--accent); color: var(--accent);
-  font-family: var(--font-mono); font-size: 14px; letter-spacing: 3px;
-  text-transform: uppercase; padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;
+  background: transparent;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  padding: 10px 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
   transition: background 0.18s, color 0.18s;
 }
 .btn-view-full:hover { background: var(--accent); color: #fff; }
 
-/* ── Right panel ────────────────────────────────────────────────── */
+/* ── Right panel: auth form ──────────────────────────────────── */
 .auth-panel {
-  display: flex; flex-direction: column; justify-content: center;
-  padding: 60px 70px; background: var(--surface);
-  border-left: 1px solid var(--border); overflow-y: auto;
-  box-shadow: -4px 0 20px rgba(0,0,0,0.05);
+  display: flex; flex-direction: column;
+  justify-content: center;
+  padding: 64px 80px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.06);
 }
 .tab-bar {
-  display: flex; gap: 0; margin-bottom: var(--space-7);
+  display: flex; gap: 0;
+  margin-bottom: 36px;
   border-bottom: 2px solid var(--border);
 }
 .tab {
-  font-family: var(--font-mono); font-size: 15px; letter-spacing: 2px;
-  text-transform: uppercase; padding: var(--space-3) 0;
-  margin-right: var(--space-7); cursor: pointer; color: var(--text-muted);
-  border: none; border-bottom: 3px solid transparent; background: none;
-  user-select: none; font-weight: 500;
-  transition: color 0.2s, border-color 0.2s; margin-bottom: -2px;
+  font-family: var(--font-mono);
+  font-size: 16px; letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 14px 0;
+  margin-right: 36px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: none;
+  user-select: none;
+  font-weight: 500;
+  transition: color 0.2s, border-color 0.2s;
+  margin-bottom: -2px;
 }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .form-heading {
-  font-family: var(--font-head); font-size: 68px; line-height: 1;
-  margin-bottom: var(--space-6); color: var(--text);
+  font-family: var(--font-head);
+  font-size: 72px; line-height: 1;
+  margin-bottom: 36px;
+  color: var(--text);
+  letter-spacing: 2px;
 }
 .form-heading .accent { color: var(--accent); }
 
-.field { margin-bottom: var(--space-5); }
+.field { margin-bottom: 22px; }
 .field label {
-  display: block; font-family: var(--font-mono); font-size: 13px;
-  letter-spacing: 2px; text-transform: uppercase; color: var(--text-soft);
-  margin-bottom: var(--space-2); font-weight: 500;
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px; letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  margin-bottom: 8px;
+  font-weight: 500;
 }
 .field input {
-  width: 100%; background: var(--surface-soft); border: 1.5px solid var(--border);
-  color: var(--text); font-family: var(--font-mono); font-size: 16px;
-  padding: var(--space-4); border-radius: var(--radius-sm); outline: none;
+  width: 100%;
+  background: var(--surface-soft);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  padding: 16px;
+  border-radius: 4px;
+  outline: none;
   transition: border-color 0.2s, background 0.2s;
 }
 .field input:focus { border-color: var(--accent); background: var(--surface); }
 .field input::placeholder { color: var(--text-muted); }
 
 .btn-submit {
-  width: 100%; margin-top: var(--space-2); padding: var(--space-4);
-  background: var(--accent); color: #fff; border: none;
-  font-family: var(--font-head); font-size: 26px; letter-spacing: 3px;
-  cursor: pointer; border-radius: var(--radius-sm);
+  width: 100%;
+  margin-top: 8px;
+  padding: 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-family: var(--font-head);
+  font-size: 28px;
+  letter-spacing: 3px;
+  cursor: pointer;
+  border-radius: 4px;
   transition: background 0.15s, transform 0.1s;
-  box-shadow: 0 2px 6px rgba(212,100,42,0.3);
+  box-shadow: 0 3px 8px rgba(212,100,42,0.35);
 }
 .btn-submit:hover { background: var(--accent-hover); }
 .btn-submit:active { transform: scale(0.99); }
 
 .msg {
-  margin-top: var(--space-4); font-family: var(--font-mono); font-size: 14px;
-  padding: var(--space-3) var(--space-4); border-radius: var(--radius-sm);
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 12px 16px;
+  border-radius: 4px;
   display: none;
 }
 .msg.error   { background: rgba(200,58,58,0.12); color: var(--danger); display: block; }
@@ -226,47 +312,58 @@ body {
 .auth-form { display: none; }
 .auth-form.active { display: block; }
 
-/* Full leaderboard modal */
+/* ── Full LB modal ───────────────────────────────────────────── */
 .lb-modal-overlay {
-  position: fixed; inset: 0; z-index: 9999; background: rgba(40,50,60,0.65);
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(40,50,60,0.65);
   display: none; align-items: center; justify-content: center;
-  backdrop-filter: blur(8px); animation: lbFadeIn 0.25s ease;
+  backdrop-filter: blur(8px);
 }
 .lb-modal-overlay.show { display: flex; }
-@keyframes lbFadeIn { from { opacity: 0; } to { opacity: 1; } }
 .lb-modal-box {
   width: min(900px, 96vw); max-height: 90vh;
-  background: var(--surface); border: 2px solid var(--accent);
-  border-radius: 8px; display: flex; flex-direction: column; overflow: hidden;
-  animation: lbModalPop 0.3s ease;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
 }
-@keyframes lbModalPop { from{transform:scale(.92);opacity:0} to{transform:none;opacity:1} }
 .lb-modal-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: var(--space-5) var(--space-6); border-bottom: 1px solid var(--border);
+  padding: 24px 32px;
+  border-bottom: 1px solid var(--border);
   background: var(--accent-soft);
 }
 .lb-modal-title {
-  font-family: var(--font-head); font-size: 42px; color: var(--accent); letter-spacing: 3px;
+  font-family: var(--font-head); font-size: 42px;
+  color: var(--accent); letter-spacing: 3px;
 }
 .lb-modal-close {
-  background: var(--surface); border: 1.5px solid var(--border); color: var(--text);
-  font-family: var(--font-mono); font-size: 14px; padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-sm); cursor: pointer; font-weight: 500;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
 }
 .lb-modal-close:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-.lb-modal-body { flex: 1; overflow-y: auto; padding: var(--space-4) 0; }
+.lb-modal-body { flex: 1; overflow-y: auto; padding: 16px 0; }
 .lb-table { width: 100%; border-collapse: collapse; }
 .lb-table th {
   position: sticky; top: 0; background: var(--surface);
-  font-family: var(--font-mono); font-size: 12px; letter-spacing: 2px;
-  text-transform: uppercase; color: var(--text-soft); font-weight: 500;
-  padding: var(--space-4) var(--space-6); text-align: left;
+  font-family: var(--font-mono); font-size: 12px;
+  letter-spacing: 2px; text-transform: uppercase;
+  color: var(--text-soft); font-weight: 500;
+  padding: 16px 24px; text-align: left;
   border-bottom: 2px solid var(--border);
 }
 .lb-table td {
-  padding: var(--space-4) var(--space-6); font-family: var(--font-mono); font-size: 15px;
-  border-bottom: 1px solid var(--border); color: var(--text);
+  padding: 16px 24px; font-family: var(--font-mono);
+  font-size: 15px; border-bottom: 1px solid var(--border);
+  color: var(--text);
 }
 .lb-table tr.full-rank-1 td { background: rgba(212,165,42,0.10); }
 .lb-table tr.full-rank-2 td { background: rgba(160,168,176,0.08); }
@@ -280,78 +377,101 @@ body {
 .lb-table td.col-status.unfinished { color: var(--danger); }
 .lb-table td.col-date { color: var(--text-muted); font-size: 13px; }
 .lb-modal-footer {
-  padding: var(--space-3) var(--space-6); border-top: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); text-align: center;
+  padding: 12px 24px; border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-muted); text-align: center;
   background: var(--surface-soft);
 }
 
-@media (max-width: 900px) {
-  body { grid-template-columns: 1fr; }
-  .branding { display: none; }
-  .auth-panel { padding: var(--space-7) var(--space-5); }
+@media (max-width: 600px) {
+  #scale-stage { display: none; }
+  body::before {
+    content: 'ZENITH DRIVEN works best on a larger screen.';
+    position: fixed; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px; text-align: center;
+    font-family: var(--font-head); font-size: 28px;
+    color: var(--accent);
+    background: linear-gradient(180deg, var(--bg-sky-top) 0%, var(--bg-sky-bottom) 100%);
+  }
 }
 </style>
 </head>
 <body>
 
-<section class="branding">
-  <div class="road-art"></div>
-  <div class="branding-content">
-    <div class="logo">ZENITH<br><span class="accent">DRIVEN</span></div>
-    <div class="tagline">Hand-gesture racing</div>
+<div id="scale-stage">
+  <div class="layout">
 
-    <div class="lb-panel">
-      <div class="lb-title">Live Leaderboard · Top 5</div>
-      <ul class="lb-list" id="lbList">
-        <li class="lb-row" style="color:var(--text-muted);grid-column:1/-1;font-size:14px;">Loading…</li>
-      </ul>
-      <div class="lb-view-full-wrap">
-        <button class="btn-view-full" id="btnViewFull">View full leaderboard ›</button>
+    <section class="branding">
+      <div class="road-art"></div>
+      <div class="branding-content">
+        <div class="logo">ZENITH<br><span class="accent">DRIVEN</span></div>
+        <div class="tagline">Hand-gesture racing</div>
+
+        <!-- ── Small note about local-only gesture script ─────────── -->
+        <div class="local-script-note">
+          <span class="label">Note</span>
+          Gesture controls are available locally via the Python script for now.
+          See the
+          <a href="https://github.com/fafabeepbeep/zenith-driven-racing-game" target="_blank" rel="noopener">GitHub repository</a>
+          for setup. Keyboard arrows work as fallback.
+        </div>
+
+        <!-- ── Leaderboard ─────────────────────────────────────────── -->
+        <div class="lb-panel">
+          <div class="lb-title">Live Leaderboard · Top 5</div>
+          <ul class="lb-list" id="lbList">
+            <li class="lb-row" style="color:var(--text-muted);grid-column:1/-1;font-size:13px;">Loading…</li>
+          </ul>
+          <div class="lb-view-full-wrap">
+            <button class="btn-view-full" id="btnViewFull">View full leaderboard ›</button>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
-</section>
+    </section>
 
-<section class="auth-panel">
-  <div class="tab-bar">
-    <button class="tab active" data-tab="signin">Sign in</button>
-    <button class="tab"        data-tab="signup">Sign up</button>
-  </div>
+    <section class="auth-panel">
+      <div class="tab-bar">
+        <button class="tab active" data-tab="signin">Sign in</button>
+        <button class="tab"        data-tab="signup">Sign up</button>
+      </div>
 
-  <div class="auth-form active" id="signin">
-    <div class="form-heading">Welcome<br><span class="accent">back.</span></div>
-    <div class="field">
-      <label>Username</label>
-      <input type="text" id="si-user" placeholder="your username" autocomplete="username" />
-    </div>
-    <div class="field">
-      <label>Password</label>
-      <input type="password" id="si-pass" placeholder="••••••••" autocomplete="current-password" />
-    </div>
-    <button class="btn-submit" id="si-btn">START ENGINE</button>
-    <div class="msg" id="si-msg"></div>
-  </div>
+      <div class="auth-form active" id="signin">
+        <div class="form-heading">Welcome<br><span class="accent">back.</span></div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="si-user" placeholder="your username" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="si-pass" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <button class="btn-submit" id="si-btn">START ENGINE</button>
+        <div class="msg" id="si-msg"></div>
+      </div>
 
-  <div class="auth-form" id="signup">
-    <div class="form-heading">Create<br><span class="accent">account.</span></div>
-    <div class="field">
-      <label>Username</label>
-      <input type="text" id="su-user" placeholder="choose a username" autocomplete="username" />
-    </div>
-    <div class="field">
-      <label>Password</label>
-      <input type="password" id="su-pass" placeholder="min. 6 characters" autocomplete="new-password" />
-    </div>
-    <div class="field">
-      <label>Confirm password</label>
-      <input type="password" id="su-conf" placeholder="repeat password" autocomplete="new-password" />
-    </div>
-    <button class="btn-submit" id="su-btn">JOIN THE RACE</button>
-    <div class="msg" id="su-msg"></div>
-  </div>
-</section>
+      <div class="auth-form" id="signup">
+        <div class="form-heading">Create<br><span class="accent">account.</span></div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="su-user" placeholder="choose a username" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="su-pass" placeholder="min. 6 characters" autocomplete="new-password" />
+        </div>
+        <div class="field">
+          <label>Confirm password</label>
+          <input type="password" id="su-conf" placeholder="repeat password" autocomplete="new-password" />
+        </div>
+        <button class="btn-submit" id="su-btn">JOIN THE RACE</button>
+        <div class="msg" id="su-msg"></div>
+      </div>
+    </section>
 
-<!-- Full leaderboard modal -->
+  </div>
+</div>
+
 <div class="lb-modal-overlay" id="lbFullModal">
   <div class="lb-modal-box">
     <div class="lb-modal-header">
@@ -371,17 +491,32 @@ body {
         </tbody>
       </table>
     </div>
-    <div class="lb-modal-footer">
-      Top 50 sessions · refreshed when modal opens
-    </div>
+    <div class="lb-modal-footer">Top 50 sessions · refreshed when modal opens</div>
   </div>
 </div>
 
 <script>
+// ── Scale-to-fit stage ───────────────────────────────────────────────────
+const DESIGN_W = 1920;
+const DESIGN_H = 1080;
+const stage    = document.getElementById('scale-stage');
+function resizeStage() {
+  if (!stage) return;
+  const scaleX = window.innerWidth  / DESIGN_W;
+  const scaleY = window.innerHeight / DESIGN_H;
+  const scale  = Math.min(scaleX, scaleY);
+  stage.style.transform = `translate(-50%, -50%) scale(${scale})`;
+}
+window.addEventListener('resize', resizeStage);
+window.addEventListener('load',   resizeStage);
+resizeStage();
+
+// ── API ─────────────────────────────────────────────────────────────────
 const API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? 'http://localhost:3000/api'
   : `${location.protocol}//${location.host}/api`;
 
+// ── Tabs ────────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab, .auth-form').forEach(el => el.classList.remove('active'));
@@ -390,6 +525,7 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
+// ── Sign in ─────────────────────────────────────────────────────────────
 document.getElementById('si-btn').addEventListener('click', async () => {
   const username = document.getElementById('si-user').value.trim();
   const password = document.getElementById('si-pass').value;
@@ -408,6 +544,7 @@ document.getElementById('si-btn').addEventListener('click', async () => {
   } catch { showMsg(msg, 'error', 'Cannot reach server. Is backend running?'); }
 });
 
+// ── Sign up ─────────────────────────────────────────────────────────────
 document.getElementById('su-btn').addEventListener('click', async () => {
   const username = document.getElementById('su-user').value.trim();
   const password = document.getElementById('su-pass').value;
@@ -430,13 +567,14 @@ document.getElementById('su-btn').addEventListener('click', async () => {
   } catch { showMsg(msg, 'error', 'Cannot reach server. Is backend running?'); }
 });
 
+// ── Leaderboard (top 5) ─────────────────────────────────────────────────
 async function loadLeaderboard() {
   const list = document.getElementById('lbList');
   try {
     const res = await fetch(`${API}/leaderboard`);
     const rows = await res.json();
     if (!rows.length) {
-      list.innerHTML = '<li style="color:var(--text-muted);font-size:14px;grid-column:1/-1">No records yet. Be the first!</li>';
+      list.innerHTML = '<li style="color:var(--text-muted);font-size:13px;grid-column:1/-1">No records yet. Be the first!</li>';
       return;
     }
     const rankClasses = ['rank-1', 'rank-2', 'rank-3'];
@@ -453,10 +591,11 @@ async function loadLeaderboard() {
         </li>`;
     }).join('');
   } catch {
-    list.innerHTML = '<li style="color:var(--text-muted);font-size:14px;grid-column:1/-1">Could not load leaderboard.</li>';
+    list.innerHTML = '<li style="color:var(--text-muted);font-size:13px;grid-column:1/-1">Could not load leaderboard.</li>';
   }
 }
 
+// ── Full leaderboard modal ─────────────────────────────────────────────
 const lbModal = document.getElementById('lbFullModal');
 const lbModalBody = document.getElementById('lbFullBody');
 async function loadFullLeaderboard() {
@@ -495,6 +634,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && lbModal.classList.contains('show')) lbModal.classList.remove('show');
 });
 
+// ── Helpers ────────────────────────────────────────────────────────────
 function formatTime(secs) {
   const m = Math.floor(secs / 60).toString().padStart(2, '0');
   const s = (secs % 60).toFixed(1).padStart(4, '0');
@@ -508,6 +648,7 @@ function showMsg(el, type, text) { el.className = 'msg ' + type; el.textContent 
 loadLeaderboard();
 setInterval(loadLeaderboard, 30_000);
 
+// ── Enter key submits the active form ──────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter' || lbModal.classList.contains('show')) return;
   const active = document.querySelector('.auth-form.active');

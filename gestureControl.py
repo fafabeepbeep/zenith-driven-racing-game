@@ -27,6 +27,7 @@ import math
 import argparse
 import os
 import sys
+import certifi
 from collections import deque, Counter
 
 # ── CLI arguments ──────────────────────────────────────────────────────────
@@ -55,7 +56,8 @@ ML_THRESHOLD  = args.ml_threshold
 
 # ── Config ─────────────────────────────────────────────────────────────────
 # Default to local for development; production users override via --server
-WS_URL = "ws://localhost:3000/gesture"
+DEFAULT_WS_URL = "wss://zenith-driven-racing-game.onrender.com/gesture"
+WS_URL = args.server if args.server else DEFAULT_WS_URL
 if args.server:                          # ← ADD THIS
     WS_URL = args.server                 # ← AND THIS
 SMOOTH_FRAMES      = 9        # majority-vote history window
@@ -272,7 +274,9 @@ class GestureSocket:
                     on_error   = self._on_error,
                     on_close   = self._on_close,
                 )
-                self.ws.run_forever(ping_interval=20)
+                self.ws.run_forever(
+                    ping_interval=20,
+    sslopt={"ca_certs": certifi.where()})
             except Exception as e:
                 print(f"[WS] Connection error: {e}")
             print("[WS] Reconnecting in 2 s…")

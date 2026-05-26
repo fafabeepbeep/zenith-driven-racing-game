@@ -1,0 +1,1 @@
+../../Resources/mediapipe/version.txt
