@@ -41,6 +41,10 @@ parser.add_argument('--left-hand', action='store_true',
                     help='Control with LEFT hand instead of RIGHT hand')
 parser.add_argument('--ml-threshold', type=float, default=0.50,
                     help='Minimum ML confidence to accept a prediction (default: 0.50)')
+parser.add_argument('--server', default=None,
+                    help='WebSocket server URL '
+                         '(e.g. wss://zenith-driven-racing-game.onrender.com/gesture). '
+                         'Defaults to ws://localhost:3000/gesture for local development.')
 args = parser.parse_args()
 
 USE_ML_MODEL  = args.model
@@ -50,7 +54,10 @@ CONTROL_HAND  = "Left" if args.left_hand else "Right"
 ML_THRESHOLD  = args.ml_threshold
 
 # ── Config ─────────────────────────────────────────────────────────────────
-WS_URL             = "ws://localhost:8765"
+# Default to local for development; production users override via --server
+WS_URL = "ws://localhost:3000/gesture"
+if args.server:                          # ← ADD THIS
+    WS_URL = args.server                 # ← AND THIS
 SMOOTH_FRAMES      = 9        # majority-vote history window
 CONFIDENCE_GATE    = 0.60     # gesture must win ≥ 60 % of votes
 DEBOUNCE_SEC       = 0.14     # minimum seconds between gesture changes

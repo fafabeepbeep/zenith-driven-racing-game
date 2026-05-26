@@ -1,7 +1,13 @@
 // src/settings.js
-// FIX: moved pause hint below username to avoid overlap.
-// Username is drawn at (SCREEN_W - 20, 20) with origin(1,0) in main.js.
-// This text sits directly below it at y=60.
+// ═══════════════════════════════════════════════════════════════════════════
+//  ZENITH DRIVEN — Pause Button (Day Theme)
+//
+//  [FIXED] Now matches the day theme: white surface, orange accent text.
+//          Previously used dark colors that clashed with the login page.
+//
+//  [FIXED] Pause button is now CLICKABLE (was decorative only). Clicking
+//          toggles pause/resume by calling the scene's existing handlers.
+// ═══════════════════════════════════════════════════════════════════════════
 
 class Settings
 {
@@ -9,29 +15,47 @@ class Settings
     {
         this.scene = scene;
 
-        // FIX: was at (1750, 5) with default origin — overlapped username.
-        // Now anchored to top-right with setOrigin(1,0), positioned at y=60
-        // (just below the username text which occupies y=20..55 approx).
         this.txtPause = scene.add.text(
-            SCREEN_W - 20, 60,
+            SCREEN_W - 20, 80,
             '[ P ] Pause',
             {
                 fontFamily: 'monospace',
-                fontSize:   '20px',
-                fill:       '#888888',
-                backgroundColor: '#00000066',
-                padding: { x: 8, y: 4 }
+                fontSize:   '22px',
+                fill:       '#d4642a',
+                backgroundColor: '#ffffffe6',
+                padding: { x: 14, y: 7 }
             }
         ).setOrigin(1, 0).setDepth(50);
+
+        // [FIXED] Make clickable
+        this.txtPause.setInteractive({ useHandCursor: true });
+        this.txtPause.on('pointerdown', () => {
+            if      (scene._gameState === STATE_PLAY)   scene._doPause();
+            else if (scene._gameState === STATE_PAUSED) scene._doResume();
+        });
+
+        this.txtPause.on('pointerover', () => {
+            this.txtPause.setStyle({ backgroundColor: '#fae8d8' });
+        });
+        this.txtPause.on('pointerout', () => {
+            if (scene._gameState === STATE_PAUSED) this.showPaused();
+            else                                    this.show();
+        });
     }
 
     show()
     {
-        this.txtPause.setText('[ P ] Pause').setStyle({ fill: '#888888' });
+        this.txtPause.setText('[ P ] Pause').setStyle({
+            fill: '#d4642a',
+            backgroundColor: '#ffffffe6'
+        });
     }
 
     showPaused()
     {
-        this.txtPause.setText('[ P ] Resume').setStyle({ fill: '#e8ff00' });
+        this.txtPause.setText('[ P ] Resume').setStyle({
+            fill: '#ffffff',
+            backgroundColor: '#d4642a'
+        });
     }
 }
