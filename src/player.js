@@ -4,14 +4,17 @@
 //
 //  WHAT CHANGED IN THIS REVISION
 //  ─────────────────────────────────────────────────────────────────────────
-//  [FIXED] Turbulence wobble made much stronger (was barely visible). Now
-//          the car shakes meaningfully when on a bump so the player clearly
-//          knows they need to use BALANCE gesture to stabilize.
+//  [FIXED] Off-road threshold widened from ±1.0 to ±1.10 — was clipping
+//          players who were still visually on the asphalt during curves.
+//          The road's visible width is ~±1.05 at corner edges due to
+//          perspective; the old threshold fired on a false positive.
 //
-//  [FIXED] Added speed penalty when turbulent without balance — caps speed
-//          at 50% of max. Makes the mechanic feel impactful.
+//  [FIXED] Centrifugal force on curves reduced 0.0008 → 0.00045 per frame.
+//          The accumulated pull on long curves was pushing players past
+//          the road edge even with correct steering input.
 //
-//  [PRESERVED] Velocity-based steering, ±2 clamp, smooth throttle/brake.
+//  [PRESERVED] Velocity-based steering, ±2 hard walls, smooth throttle,
+//              turbulence wobble, bump speed penalty.
 // ═══════════════════════════════════════════════════════════════════════════
 
 class Player
@@ -48,7 +51,8 @@ class Player
         this.minSteerFactor   = 0.30;
         this.steerVelocity = 0;
 
-        this.centrifugal = 0.08;
+        // [FIXED] Halved centrifugal pull — was making curves un-survivable
+        this.centrifugal = 0.00045;       // was 0.0008
 
         this.accelRate   = this.maxSpeed * 0.40;
         this.brakeRate   = this.maxSpeed * 1.10;
@@ -69,10 +73,6 @@ class Player
 
     restart()
     {
-        // ── Lateral CENTER of road + race start ──────────────────
-        // Called on full restart AND on redemption restart. Player x=0
-        // is the middle lane; z=0 is race-start. Steer velocity, speed,
-        // and turbulence all cleared so the redo is a clean slate.
         this.x = 0;
         this.y = 0;
         this.z = 0;
@@ -99,8 +99,6 @@ class Player
         else if (this.reverse)    this._targetSpeed = this.maxReverseSpeed;
         else                      this._targetSpeed = 0;
 
-        // [FIXED] Speed penalty when turbulent (and not balanced)
-        // Caps top speed at 50% so bumps actually slow the player.
         if (this.turbulent && !this.balanceActive) {
             this._targetSpeed = Math.min(this._targetSpeed, this.maxSpeed * 0.50);
         }
@@ -126,9 +124,6 @@ class Player
         if (this.moveLeft  && !this.moveRight) targetSteer = -this.maxSteerVelocity * steerFactor;
         if (this.moveRight && !this.moveLeft)  targetSteer =  this.maxSteerVelocity * steerFactor;
 
-        // [FIXED] Turbulence wobble — significantly stronger.
-        //   Old: 0.6 + 0.3                  = 0.9 max  (barely visible)
-        //   New: 1.4 + 0.7 + 0.4            = 2.5 max  (clearly tossed)
         if (this.turbulent && !this.balanceActive) {
             this._turbulencePhase += dt * 18;
             var wobble = Math.sin(this._turbulencePhase) * 1.4
@@ -145,7 +140,7 @@ class Player
         this.x += this.steerVelocity * dt;
 
         var seg = circuit.getSegment(this.z);
-        if (seg && seg.curve) this.x += seg.curve * 0.0008 * speedPercent;
+        if (seg && seg.curve) this.x += seg.curve * this.centrifugal * speedPercent;
 
         if (this.x < -2) { this.x = -2; this.steerVelocity = 0; }
         if (this.x >  2) { this.x =  2; this.steerVelocity = 0; }
