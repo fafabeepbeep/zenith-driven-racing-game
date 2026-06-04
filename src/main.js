@@ -148,14 +148,14 @@ class StartScene extends Phaser.Scene {
     ];
     var legX = SCREEN_CX - 360, legY = 850;
     legends.forEach(function(item, i) {
-      var col = i % 2 === 0 ? legX : legX + 450;
-      var row = legY + Math.floor(i / 2) * 70;
+      var col = i % 2 === 0 ? legX : legX + 500;
+      var row = legY + Math.floor(i / 2) * 60;
       this.add.text(col, row, item[0], { fontSize: '38px' });
-      this.add.text(col + 60, row + 4, item[1], {
-        fontFamily:'monospace', fontSize:'30px', fill:'#d4642a', fontStyle:'bold'
+      this.add.text(col + 75, row + 4, item[1], {
+        fontFamily:'monospace', fontSize:'26px', fill:'#d4642a', fontStyle:'bold'
       });
-      this.add.text(col + 165, row + 6, item[2], {
-        fontFamily:'monospace', fontSize:'17px', fill:'#506680'
+      this.add.text(col + 180, row + 6, item[2], {
+        fontFamily:'monospace', fontSize:'24px', fill:'#506680'
       });
     }, this);
 
