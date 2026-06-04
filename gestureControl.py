@@ -5,15 +5,15 @@ USAGE
   Rule-based (no model needed):
       python gestureControl.py
 
-  ML model (auto-fallback to rules if file missing):
+  ML model (for locally fully):
       python gestureControl.py --model
-      python gestureControl.py --model --model-path models/gestureModel.task
+      
+  ML model (locally used with senith driven on render)
+python3 gestureControl.py --model --server wss://zenith-driven-racing-game.onrender.com/gesture
 
   Switch control hand for left-handed players:
       python gestureControl.py --left-hand
 
-Train a model first with:
-      python gestureModelTrainer.py
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -68,6 +68,15 @@ BALANCE_WINDOW     = 8        # frames for BALANCE detection
 ACCURACY_INTERVAL  = 3.0      # seconds between accuracy reports to game
 STABLE_THRESHOLD   = 5        # frames a gesture must hold to count as "correct"
 FPS_WINDOW         = 30       # rolling frames for FPS calc
+
+# ── Compact window ─────────────────────────────────────────────────────────
+# Small floating window that can be dragged anywhere on screen and placed
+# on top of the browser game (Mac title bar lets you drag it freely).
+WINDOW_NAME   = "ZENITH Gesture"
+WINDOW_W      = 320
+WINDOW_H      = 240
+WINDOW_START_X = 40
+WINDOW_START_Y = 40
 
 # ── MediaPipe ──────────────────────────────────────────────────────────────
 mp_hands = mp.solutions.hands
@@ -487,6 +496,97 @@ def draw_overlay(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  COMPACT HUD  (small 320×240 floating window)
+# ─────────────────────────────────────────────────────────────────────────
+#  Tighter layout for the small draggable window. Keeps the essentials:
+#    • mirrored camera + green landmark skeleton
+#    • top status bar: WS dot + accuracy stat
+#    • thin confidence bar
+#    • bottom strip: gesture name (large, colored)
+# ═══════════════════════════════════════════════════════════════════════════
+COMPACT_COLORS = {
+    "FORWARD": GREEN,
+    "BRAKE":   RED,
+    "LEFT":    (220, 130, 50),
+    "RIGHT":   (220, 130, 50),
+    "REVERSE": AMBER,
+    "BALANCE": (40, 100, 220),
+    "START":   GREEN,
+    "NONE":    INK_DIM,
+    "":        INK_DIM,
+}
+
+
+def draw_overlay_compact(
+    preview_frame,
+    voted_gesture: str,
+    confidence: float,
+    accuracy_report: dict,
+    ws_connected: bool,
+):
+    """Draw the compact HUD on top of an already-resized small frame.
+
+    Layout (320×240):
+      ┌────────────────────────────┐
+      │ ● ONLINE          95% · 23 │  ← 18px status bar
+      │     [camera + skeleton]    │
+      │  ▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░   │  ← 4px confidence bar
+      │       F O R W A R D        │  ← 30px gesture strip
+      └────────────────────────────┘
+    """
+    h, w = preview_frame.shape[:2]
+
+    # ── Top status bar ──
+    cv2.rectangle(preview_frame, (0, 0), (w, 18), SURFACE, -1)
+
+    ws_col = GREEN if ws_connected else RED
+    cv2.circle(preview_frame, (10, 9), 4, ws_col, -1, cv2.LINE_AA)
+    ws_text = "ONLINE" if ws_connected else "OFFLINE"
+    cv2.putText(preview_frame, ws_text, (20, 13),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, INK, 1, cv2.LINE_AA)
+
+    acc = accuracy_report.get("accuracy", 100.0)
+    attempts = accuracy_report.get("total_gestures", 0)
+    acc_text = f"{acc:.0f}% \xb7 {attempts}"
+    (tw, _), _ = cv2.getTextSize(acc_text, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
+    acc_col = GREEN if acc >= 80 else AMBER if acc >= 60 else RED
+    cv2.putText(preview_frame, acc_text, (w - tw - 6, 13),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.42, acc_col, 1, cv2.LINE_AA)
+
+    # ── Confidence bar (thin, above the bottom strip) ──
+    bar_y = h - 38
+    bar_x = 8
+    bar_w = w - 16
+    bar_h = 4
+    cv2.rectangle(preview_frame, (bar_x, bar_y),
+                  (bar_x + bar_w, bar_y + bar_h), SURFACE_2, -1)
+    fill = int(bar_w * max(0.0, min(1.0, confidence)))
+    if fill > 0:
+        bar_col = (GREEN if confidence >= 0.7
+                   else AMBER if confidence >= 0.5
+                   else RED)
+        cv2.rectangle(preview_frame, (bar_x, bar_y),
+                      (bar_x + fill, bar_y + bar_h), bar_col, -1)
+
+    # ── Bottom gesture strip ──
+    strip_top = h - 30
+    cv2.rectangle(preview_frame, (0, strip_top), (w, h), SURFACE, -1)
+
+    label = voted_gesture if voted_gesture not in ("NONE", "") else "—"
+    color = COMPACT_COLORS.get(voted_gesture, INK_DIM)
+    font  = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.85
+    thick = 2
+    (tw, th), _ = cv2.getTextSize(label, font, scale, thick)
+    tx = (w - tw) // 2
+    ty = strip_top + (30 + th) // 2 - 2
+    cv2.putText(preview_frame, label, (tx, ty), font, scale, color,
+                thick, cv2.LINE_AA)
+
+    return preview_frame
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  LANDMARK DRAWING ON MIRRORED PREVIEW
 # ═══════════════════════════════════════════════════════════════════════════
 def _draw_landmarks_on_preview(preview_frame, hand_landmarks, is_control: bool):
@@ -568,6 +668,15 @@ def main():
     actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     print(f"[CAM] Resolution: {actual_w}×{actual_h}")
+
+    # ── Compact draggable window ──────────────────────────────────────
+    # WINDOW_NORMAL allows manual resize; we set a small initial size and
+    # position it near the top-left of the screen. The user can then drag
+    # it anywhere (including on top of the browser game window) using
+    # the OS title bar.
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    cv2.resizeWindow(WINDOW_NAME, WINDOW_W, WINDOW_H)
+    cv2.moveWindow(WINDOW_NAME, WINDOW_START_X, WINDOW_START_Y)
 
     with mp_hands.Hands(
         static_image_mode            = False,
@@ -665,23 +774,23 @@ def main():
             avg_dt = sum(frame_times) / len(frame_times) if frame_times else 1.0
             fps    = 1.0 / avg_dt if avg_dt > 0 else 0.0
 
-            # ── Draw HUD ──────────────────────────────────────────────
+            # ── Draw HUD (compact 320×240 window) ─────────────────────
+            # Resize the high-res preview down to the compact window size
+            # first, then draw the small HUD on top. This keeps the
+            # window tiny + draggable so it fits in a corner of the
+            # screen on top of the browser game.
             display_conf = ml_confidence if ml_classifier else vote_conf
-            draw_overlay(
-                preview_frame    = preview_frame,
-                voted_gesture    = last_gesture,
-                raw_gesture      = raw_gesture,
-                confidence       = display_conf,
-                detected_hands   = detected_hands,
-                ws_connected     = sock.connected,
-                accuracy_report  = accuracy_tracker.report(),
-                mode_label       = mode_label,
-                model_name       = model_name,
-                control_hand     = CONTROL_HAND,
-                fps              = fps,
+            small_frame = cv2.resize(preview_frame, (WINDOW_W, WINDOW_H),
+                                     interpolation=cv2.INTER_AREA)
+            draw_overlay_compact(
+                preview_frame   = small_frame,
+                voted_gesture   = last_gesture,
+                confidence      = display_conf,
+                accuracy_report = accuracy_tracker.report(),
+                ws_connected    = sock.connected,
             )
 
-            cv2.imshow("ZENITH DRIVEN — Gesture Control", preview_frame)
+            cv2.imshow(WINDOW_NAME, small_frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
@@ -689,6 +798,14 @@ def main():
             if key == ord('r'):
                 accuracy_tracker.reset()
                 print("\n[ACCURACY] Manually reset.")
+
+            # Also exit cleanly if the user closes the window (X / red dot)
+            try:
+                if cv2.getWindowProperty(WINDOW_NAME,
+                                         cv2.WND_PROP_VISIBLE) < 1:
+                    break
+            except cv2.error:
+                break
 
     cap.release()
     cv2.destroyAllWindows()
