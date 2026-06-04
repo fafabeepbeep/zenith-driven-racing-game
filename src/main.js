@@ -132,10 +132,32 @@ class StartScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // ── Gesture legend ─────────────────────────────────────────
-    var legendImg = this.add.image(SCREEN_CX, 925, 'gestureLegend').setOrigin(0.5);
-    var boxW = 1500, boxH = 205;          // available band: ~822 → 1028
-    var scale = Math.min(boxW / legendImg.width, boxH / legendImg.height);
-    legendImg.setScale(scale);
+    //var legendImg = this.add.image(SCREEN_CX, 925, 'gestureLegend').setOrigin(0.5);
+    //var boxW = 1500, boxH = 205;          // available band: ~822 → 1028
+    //var scale = Math.min(boxW / legendImg.width, boxH / legendImg.height);
+    //legendImg.setScale(scale); for image gestureLegend
+
+    var legends = [
+      ['🫵',   'START',   'Point finger at camera'],
+      ['✋🫳',  'FORWARD', 'Palm down, fingers closed'],
+      ['🖐',   'BRAKE',   'Open palm facing camera'],
+      ['🤜',  'REVERSE', 'Closed fist'],
+      ['🫲',  'LEFT',    'Hand sign pointing left'],
+      ['🫱',  'RIGHT',   'Hand sign pointing right'],
+      ['🖐🫳',  'BALANCE', 'Palm down, fingers spread'],
+    ];
+    var legX = SCREEN_CX - 360, legY = 850;
+    legends.forEach(function(item, i) {
+      var col = i % 2 === 0 ? legX : legX + 450;
+      var row = legY + Math.floor(i / 2) * 70;
+      this.add.text(col, row, item[0], { fontSize: '38px' });
+      this.add.text(col + 60, row + 4, item[1], {
+        fontFamily:'monospace', fontSize:'30px', fill:'#d4642a', fontStyle:'bold'
+      });
+      this.add.text(col + 165, row + 6, item[2], {
+        fontFamily:'monospace', fontSize:'17px', fill:'#506680'
+      });
+    }, this);
 
     this._wsStatusText = this.add.text(20, SCREEN_H - 40, 'Python script: checking…', {
       fontFamily:'monospace', fontSize:'18px', fill:'#5a6678',
