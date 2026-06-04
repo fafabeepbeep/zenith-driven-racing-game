@@ -1,11 +1,5 @@
 // src/main.js — ZENITH DRIVEN
 // ═══════════════════════════════════════════════════════════════════════════
-//  Final clean build — no download-app UI, no MediaPipe JS, no PyInstaller.
-//
-//  Gesture controls work via the local Python script connecting through
-//  the WebSocket relay at /gesture. Keyboard arrows are a permanent
-//  fallback so the game is always playable.
-//
 //  Gesture emoji mapping (matches gestureControl.py):
 //    START   → 🫵   (pointing finger at camera)
 //    FORWARD → ✋🫳  (palm down, fingers closed)
