@@ -1424,7 +1424,6 @@ This means **you never need to manually trigger a deployment** — just push to 
 ```bash
 # 1. Make your changes locally
 # 2. Stage and commit
-git checkout -b feature-name
 git add .
 git commit -m "Update leaderboard styling"
 
