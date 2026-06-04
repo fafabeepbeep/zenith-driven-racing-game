@@ -210,7 +210,7 @@ class MainScene extends Phaser.Scene {
     this.load.image('imageTraffic2', 'assets/img_pinkcar.png');
     this.load.image('imageTraffic3', 'assets/img_greencar.png');
     this.load.image('imageTrees',    'assets/img_trees.png');
-    this.load.image('gestureLegend', 'assets/gesturelegend.png');
+    this.load.image('gestureLegend', 'assets/img_gestureLegend.png');
   }
 
   create() {
